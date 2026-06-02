@@ -12,7 +12,7 @@ const {
 } = process.env;
 
 const POLL_INTERVAL_MS = 10_000;
-const STATUS_EMOJI = ':headphones:';
+const STATUS_EMOJI = process.env.STATUS_EMOJI || ':headphones:';
 const MAX_STATUS_LENGTH = 100;
 
 // Validate that all required env vars are set
@@ -93,7 +93,7 @@ async function setSlackStatus(text, emoji) {
     status_emoji: emoji || '',
   };
 
-  await axios.post(
+  const response = await axios.post(
     'https://slack.com/api/users.profile.set',
     { profile },
     {
@@ -103,6 +103,10 @@ async function setSlackStatus(text, emoji) {
       },
     }
   );
+
+  if (!response.data.ok) {
+    throw new Error(`Slack API error: ${response.data.error}`);
+  }
 }
 
 async function poll() {
