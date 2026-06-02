@@ -11,7 +11,7 @@ const {
   SPOTIFY_REFRESH_TOKEN,
 } = process.env;
 
-const POLL_INTERVAL_MS = 60_000;
+const POLL_INTERVAL_MS = 10_000;
 const STATUS_EMOJI = ':headphones:';
 const MAX_STATUS_LENGTH = 100;
 
