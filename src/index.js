@@ -33,23 +33,19 @@ if (missing.length) {
   console.warn(`Warning: Missing env vars: ${missing.map(([k]) => k).join(', ')}. Bot may not fully function until configured.`);
 }
 
-// Set up ExpressReceiver for standard OAuth web routes
-const receiver = new ExpressReceiver({
-  signingSecret: 'NOT_USED_IN_SOCKET_MODE',
-  app: express()
-});
+// Set up Express app for standard OAuth web routes
+const expressApp = express();
 
 // Set up Bolt App using Socket Mode
 const app = new App({
   token: SLACK_BOT_TOKEN,
   appToken: SLACK_APP_TOKEN,
-  socketMode: true,
-  receiver
+  socketMode: true
 });
 
 // ── Web Routes for OAuth ──────────────────────────────────
 
-receiver.app.get('/install', (req, res) => {
+expressApp.get('/install', (req, res) => {
   const params = new URLSearchParams({
     client_id: SLACK_CLIENT_ID,
     user_scope: 'users.profile:write',
@@ -58,7 +54,7 @@ receiver.app.get('/install', (req, res) => {
   res.redirect(`https://slack.com/oauth/v2/authorize?${params.toString()}`);
 });
 
-receiver.app.get('/slack/callback', async (req, res) => {
+expressApp.get('/slack/callback', async (req, res) => {
   const code = req.query.code;
   if (!code) return res.status(400).send('Missing Slack code');
 
@@ -92,7 +88,7 @@ receiver.app.get('/slack/callback', async (req, res) => {
   }
 });
 
-receiver.app.get('/spotify/login', (req, res) => {
+expressApp.get('/spotify/login', (req, res) => {
   const { slackUserId } = req.query;
   if (!slackUserId) return res.status(400).send('Missing slackUserId');
 
@@ -107,7 +103,7 @@ receiver.app.get('/spotify/login', (req, res) => {
   res.redirect(`https://accounts.spotify.com/authorize?${params.toString()}`);
 });
 
-receiver.app.get('/spotify/callback', async (req, res) => {
+expressApp.get('/spotify/callback', async (req, res) => {
   const code = req.query.code;
   const slackUserId = req.query.state;
 
@@ -350,8 +346,11 @@ async function pollAllUsers() {
 // ── Startup ───────────────────────────────────────────────
 
 (async () => {
-  await app.start(PORT);
-  console.log(`⚡️ Bolt app is running on port ${PORT} with Socket Mode!`);
+  await app.start();
+  expressApp.listen(PORT, () => {
+    console.log(`Express OAuth server is running on port ${PORT}`);
+  });
+  console.log(`⚡️ Bolt app is running with Socket Mode!`);
   
   pollAllUsers();
   setInterval(pollAllUsers, POLL_INTERVAL_MS);
