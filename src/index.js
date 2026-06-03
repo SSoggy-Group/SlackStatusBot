@@ -25,8 +25,7 @@ const missing = [
 ].filter(([, v]) => !v);
 
 if (missing.length) {
-  console.error(`Missing env vars: ${missing.map(([k]) => k).join(', ')}`);
-  process.exit(1);
+  console.warn(`Warning: Missing env vars for OAuth: ${missing.map(([k]) => k).join(', ')}. Bot will only poll pre-configured users.`);
 }
 
 const app = express();
