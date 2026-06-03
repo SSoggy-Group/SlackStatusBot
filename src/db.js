@@ -34,6 +34,11 @@ function saveUser(slackUserId, data) {
     ...users[slackUserId],
     ...data,
   };
+  
+  if (users[slackUserId].enabled === undefined) {
+    users[slackUserId].enabled = true;
+  }
+  
   fs.writeFileSync(DB_FILE, JSON.stringify(users, null, 2), 'utf8');
 }
 

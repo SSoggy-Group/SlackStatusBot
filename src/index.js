@@ -1,9 +1,12 @@
 require('dotenv').config();
-const express = require('express');
+const { App, ExpressReceiver } = require('@slack/bolt');
 const axios = require('axios');
 const db = require('./db');
+const express = require('express');
 
 const {
+  SLACK_APP_TOKEN,
+  SLACK_BOT_TOKEN,
   SLACK_CLIENT_ID,
   SLACK_CLIENT_SECRET,
   SPOTIFY_CLIENT_ID,
@@ -17,6 +20,8 @@ const MAX_STATUS_LENGTH = 100;
 const PORT = process.env.PORT || 8888;
 
 const missing = [
+  ['SLACK_APP_TOKEN', SLACK_APP_TOKEN],
+  ['SLACK_BOT_TOKEN', SLACK_BOT_TOKEN],
   ['SLACK_CLIENT_ID', SLACK_CLIENT_ID],
   ['SLACK_CLIENT_SECRET', SLACK_CLIENT_SECRET],
   ['SPOTIFY_CLIENT_ID', SPOTIFY_CLIENT_ID],
@@ -25,27 +30,26 @@ const missing = [
 ].filter(([, v]) => !v);
 
 if (missing.length) {
-  console.warn(`Warning: Missing env vars for OAuth: ${missing.map(([k]) => k).join(', ')}. Bot will only poll pre-configured users.`);
+  console.warn(`Warning: Missing env vars: ${missing.map(([k]) => k).join(', ')}. Bot may not fully function until configured.`);
 }
 
-const app = express();
-
-app.get('/', (req, res) => {
-  res.send(`
-    <html>
-      <head><title>Spotify Slack Status</title></head>
-      <body style="font-family: sans-serif; text-align: center; margin-top: 50px;">
-        <h1>Spotify to Slack Status</h1>
-        <p>Sync your Spotify currently playing track to your Slack status.</p>
-        <a href="/install" style="display:inline-block; padding: 10px 20px; background: #000; color: #fff; text-decoration: none; border-radius: 4px;">
-          Connect Slack
-        </a>
-      </body>
-    </html>
-  `);
+// Set up ExpressReceiver for standard OAuth web routes
+const receiver = new ExpressReceiver({
+  signingSecret: 'NOT_USED_IN_SOCKET_MODE',
+  app: express()
 });
 
-app.get('/install', (req, res) => {
+// Set up Bolt App using Socket Mode
+const app = new App({
+  token: SLACK_BOT_TOKEN,
+  appToken: SLACK_APP_TOKEN,
+  socketMode: true,
+  receiver
+});
+
+// ── Web Routes for OAuth ──────────────────────────────────
+
+receiver.app.get('/install', (req, res) => {
   const params = new URLSearchParams({
     client_id: SLACK_CLIENT_ID,
     user_scope: 'users.profile:write',
@@ -54,11 +58,9 @@ app.get('/install', (req, res) => {
   res.redirect(`https://slack.com/oauth/v2/authorize?${params.toString()}`);
 });
 
-app.get('/slack/callback', async (req, res) => {
+receiver.app.get('/slack/callback', async (req, res) => {
   const code = req.query.code;
-  if (!code) {
-    return res.status(400).send('Missing Slack code');
-  }
+  if (!code) return res.status(400).send('Missing Slack code');
 
   try {
     const response = await axios.post('https://slack.com/api/oauth.v2.access', null, {
@@ -70,27 +72,29 @@ app.get('/slack/callback', async (req, res) => {
       }
     });
 
-    if (!response.data.ok) {
-      throw new Error(response.data.error);
-    }
+    if (!response.data.ok) throw new Error(response.data.error);
 
     const slackToken = response.data.authed_user.access_token;
     const slackUserId = response.data.authed_user.id;
 
     db.saveUser(slackUserId, { slackToken, lastTrack: null });
 
-    res.redirect(`/spotify/login?slackUserId=${slackUserId}`);
+    // Inform user to go back to Slack
+    res.send(`
+      <html><body style="font-family:sans-serif; text-align:center; padding: 50px;">
+        <h1>Slack Authorized!</h1>
+        <p>Please return to the Slack App Home tab to connect Spotify.</p>
+      </body></html>
+    `);
   } catch (err) {
     console.error('Slack OAuth Error:', err.message);
     res.status(500).send('Failed to authenticate with Slack');
   }
 });
 
-app.get('/spotify/login', (req, res) => {
+receiver.app.get('/spotify/login', (req, res) => {
   const { slackUserId } = req.query;
-  if (!slackUserId) {
-    return res.status(400).send('Missing slackUserId');
-  }
+  if (!slackUserId) return res.status(400).send('Missing slackUserId');
 
   const params = new URLSearchParams({
     response_type: 'code',
@@ -103,13 +107,11 @@ app.get('/spotify/login', (req, res) => {
   res.redirect(`https://accounts.spotify.com/authorize?${params.toString()}`);
 });
 
-app.get('/spotify/callback', async (req, res) => {
+receiver.app.get('/spotify/callback', async (req, res) => {
   const code = req.query.code;
   const slackUserId = req.query.state;
 
-  if (!code || !slackUserId) {
-    return res.status(400).send('Missing Spotify code or state');
-  }
+  if (!code || !slackUserId) return res.status(400).send('Missing code or state');
 
   try {
     const response = await axios.post(
@@ -130,18 +132,123 @@ app.get('/spotify/callback', async (req, res) => {
     db.saveUser(slackUserId, { spotifyRefreshToken: response.data.refresh_token });
 
     res.send(`
-      <html>
-        <body style="font-family: sans-serif; text-align: center; margin-top: 50px;">
-          <h1>Setup complete</h1>
-          <p>You can close this tab.</p>
-        </body>
-      </html>
+      <html><body style="font-family:sans-serif; text-align:center; padding: 50px;">
+        <h1>Spotify Connected!</h1>
+        <p>You're all set! Return to the Slack App Home.</p>
+      </body></html>
     `);
   } catch (err) {
     console.error('Spotify OAuth Error:', err.response?.data || err.message);
     res.status(500).send('Failed to authenticate with Spotify');
   }
 });
+
+// ── App Home UI ───────────────────────────────────────────
+
+app.event('app_home_opened', async ({ event, client, logger }) => {
+  try {
+    const user = db.getUser(event.user);
+    const blocks = [
+      {
+        type: 'header',
+        text: { type: 'plain_text', text: 'Spotify to Slack Status Configuration' }
+      },
+      { type: 'divider' }
+    ];
+
+    if (!user || !user.slackToken) {
+      blocks.push({
+        type: 'section',
+        text: { type: 'mrkdwn', text: '*Step 1:* Grant the bot permission to update your custom status.' }
+      });
+      blocks.push({
+        type: 'actions',
+        elements: [{
+          type: 'button',
+          text: { type: 'plain_text', text: 'Authorize Slack' },
+          url: `${PUBLIC_URL}/install`,
+          action_id: 'link_slack'
+        }]
+      });
+    } else if (!user.spotifyRefreshToken) {
+      blocks.push({
+        type: 'section',
+        text: { type: 'mrkdwn', text: '✅ Slack authorized!\n\n*Step 2:* Connect your Spotify account to read your current track.' }
+      });
+      blocks.push({
+        type: 'actions',
+        elements: [{
+          type: 'button',
+          text: { type: 'plain_text', text: 'Connect Spotify' },
+          url: `${PUBLIC_URL}/spotify/login?slackUserId=${event.user}`,
+          action_id: 'link_spotify'
+        }]
+      });
+    } else {
+      const isEnabled = user.enabled !== false;
+      blocks.push({
+        type: 'section',
+        text: { type: 'mrkdwn', text: '✅ *All accounts connected!*' }
+      });
+      blocks.push({
+        type: 'section',
+        text: { type: 'mrkdwn', text: `Status sync is currently: *${isEnabled ? 'Enabled' : 'Disabled'}*` }
+      });
+      blocks.push({
+        type: 'actions',
+        elements: [{
+          type: 'button',
+          text: { type: 'plain_text', text: isEnabled ? 'Disable Sync' : 'Enable Sync' },
+          style: isEnabled ? 'danger' : 'primary',
+          action_id: 'toggle_sync',
+          value: isEnabled ? 'disable' : 'enable'
+        }]
+      });
+    }
+
+    await client.views.publish({
+      user_id: event.user,
+      view: { type: 'home', blocks }
+    });
+  } catch (error) {
+    logger.error(error);
+  }
+});
+
+// Acknowledge URL button clicks (prevents error triangle in Slack)
+app.action('link_slack', async ({ ack }) => { await ack(); });
+app.action('link_spotify', async ({ ack }) => { await ack(); });
+
+app.action('toggle_sync', async ({ body, ack, client }) => {
+  await ack();
+  const userId = body.user.id;
+  const actionValue = body.actions[0].value;
+  
+  const isEnabled = actionValue === 'enable';
+  db.saveUser(userId, { enabled: isEnabled });
+
+  // If disabling, also clear their status immediately
+  if (!isEnabled) {
+    const user = db.getUser(userId);
+    if (user && user.slackToken && user.lastTrack) {
+      try {
+        await setSlackStatus(user.slackToken, '', '');
+        db.saveUser(userId, { lastTrack: null });
+      } catch (e) {
+        console.error('Failed to clear status on disable:', e.message);
+      }
+    }
+  }
+
+  // Refresh the App Home view
+  app.client.events.emit('app_home_opened', {
+    event: { user: userId },
+    client,
+    logger: app.logger
+  });
+});
+
+// ── Polling Engine ────────────────────────────────────────
 
 async function getSpotifyAccessToken(refreshToken) {
   const response = await axios.post(
@@ -169,14 +276,10 @@ async function getCurrentlyPlaying(accessToken) {
     }
   );
 
-  if (response.status === 204 || !response.data) {
-    return null;
-  }
+  if (response.status === 204 || !response.data) return null;
   
   const { is_playing, item, currently_playing_type } = response.data;
-  if (!is_playing || !item) {
-    return null;
-  }
+  if (!is_playing || !item) return null;
 
   let statusText;
   if (currently_playing_type === 'episode') {
@@ -189,7 +292,6 @@ async function getCurrentlyPlaying(accessToken) {
   if (statusText.length > MAX_STATUS_LENGTH) {
     statusText = statusText.substring(0, MAX_STATUS_LENGTH - 1) + '…';
   }
-
   return statusText;
 }
 
@@ -209,20 +311,16 @@ async function setSlackStatus(slackToken, text, emoji) {
       },
     }
   );
-
-  if (!response.data.ok) {
-    throw new Error(`Slack API error: ${response.data.error}`);
-  }
+  if (!response.data.ok) throw new Error(response.data.error);
 }
 
 async function pollAllUsers() {
   const users = db.getAllUsers();
-  const userIds = Object.keys(users);
-
-  for (const slackUserId of userIds) {
+  
+  for (const slackUserId of Object.keys(users)) {
     const user = users[slackUserId];
     
-    if (!user.slackToken || !user.spotifyRefreshToken) {
+    if (!user.slackToken || !user.spotifyRefreshToken || user.enabled === false) {
       continue;
     }
 
@@ -249,10 +347,12 @@ async function pollAllUsers() {
   }
 }
 
-app.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
-  console.log(`Public URL: ${PUBLIC_URL}`);
+// ── Startup ───────────────────────────────────────────────
+
+(async () => {
+  await app.start(PORT);
+  console.log(`⚡️ Bolt app is running on port ${PORT} with Socket Mode!`);
   
   pollAllUsers();
   setInterval(pollAllUsers, POLL_INTERVAL_MS);
-});
+})();
