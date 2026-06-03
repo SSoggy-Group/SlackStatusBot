@@ -214,7 +214,7 @@ async function updateHomeView(userId, client) {
           dispatch_action_config: { trigger_actions_on: ['on_enter_pressed', 'on_character_entered'] }
         },
         label: { type: 'plain_text', text: 'Status Emoji (e.g. :headphones:)' },
-        hint: { type: 'plain_text', text: 'Must include the colons (e.g. :notes:)' }
+        hint: { type: 'plain_text', text: 'Comma-separate multiple for random! (e.g. :notes:, :headphones:)' }
       },
       {
         type: 'input',
@@ -401,8 +401,16 @@ async function runPoll() {
       const track = await fetchCurrentTrack(accessToken);
       
       const format = user.statusFormat || defaultFormat;
-      const emoji = user.statusEmoji || defaultEmoji;
+      let emoji = user.statusEmoji || defaultEmoji;
       const clearOnPause = user.clearOnPause !== false;
+
+      // Select a random emoji if the user provided a comma-separated list
+      if (emoji.includes(',')) {
+        const emojis = emoji.split(',').map(e => e.trim()).filter(e => e.length > 0);
+        if (emojis.length > 0) {
+          emoji = emojis[Math.floor(Math.random() * emojis.length)];
+        }
+      }
 
       if (track) {
         let text = format
