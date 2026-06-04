@@ -263,33 +263,119 @@ function getCustomizationBlocks(user) {
         initial_options: initialOptions.length > 0 ? initialOptions : [options[0]]
       },
       label: { type: 'plain_text', text: 'Active Data Sources' },
-      hint: { type: 'plain_text', text: 'Select multiple to cycle between them!' }
+      hint: { type: 'plain_text', text: 'Select multiple to cycle or combine them!' }
     }
   ];
 
-  if (userSources.includes('lastfm')) {
+  const cycleSpeed = user.cycleSpeed || 10;
+  const cycleOptions = [
+    { text: { type: 'plain_text', text: '10 seconds' }, value: '10' },
+    { text: { type: 'plain_text', text: '30 seconds' }, value: '30' },
+    { text: { type: 'plain_text', text: '1 minute' }, value: '60' },
+    { text: { type: 'plain_text', text: '5 minutes' }, value: '300' }
+  ];
+
+  const displayMode = user.displayMode || 'cycle';
+  const displayModeOptions = [
+    { text: { type: 'plain_text', text: 'Cycle (One at a time)' }, value: 'cycle' },
+    { text: { type: 'plain_text', text: 'All at once (Combined)' }, value: 'combined' }
+  ];
+
+  blocks.push({
+    type: 'actions',
+    elements: [
+      {
+        type: 'static_select',
+        action_id: 'update_display_mode',
+        options: displayModeOptions,
+        initial_option: displayModeOptions.find(o => o.value === displayMode),
+        placeholder: { type: 'plain_text', text: 'Display Mode' }
+      },
+      {
+        type: 'static_select',
+        action_id: 'update_cycle_speed',
+        options: cycleOptions,
+        initial_option: cycleOptions.find(o => o.value === cycleSpeed.toString()),
+        placeholder: { type: 'plain_text', text: 'Cycle Speed' }
+      }
+    ]
+  });
+
+  blocks.push({ type: 'divider' });
+  blocks.push({
+    type: 'input', dispatch_action: true, optional: true,
+    element: { type: 'plain_text_input', action_id: 'update_default_pfp', initial_value: user.defaultPfp || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
+    label: { type: 'plain_text', text: 'Default PFP URL' }, hint: { type: 'plain_text', text: 'Reverts to this when nothing is playing.' }
+  });
+
+  function addPlatformUI(id, label) {
+    if (!userSources.includes(id)) return;
+    blocks.push({ type: 'divider' });
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*${label} Settings*` } });
+
+    if (id === 'lastfm') {
+      blocks.push({
+        type: 'input', dispatch_action: true, optional: true,
+        element: { type: 'plain_text_input', action_id: 'update_lastfm_username', initial_value: user.lastFmUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
+        label: { type: 'plain_text', text: 'Last.fm Username' }
+      });
+      const lfmCbOpts = [{ text: { type: 'plain_text', text: 'Show Play Count' }, value: 'true' }];
+      const playcountBlock = {
+        type: 'actions', elements: [{ type: 'checkboxes', action_id: 'update_lastfm_playcount', options: lfmCbOpts }]
+      };
+      if (user.lastFmPlayCount) playcountBlock.elements[0].initial_options = lfmCbOpts;
+      blocks.push(playcountBlock);
+    } else if (id === 'steam') {
+      blocks.push({
+        type: 'input', dispatch_action: true, optional: true,
+        element: { type: 'plain_text_input', action_id: 'update_steam_id', initial_value: user.steamId || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
+        label: { type: 'plain_text', text: 'Steam ID (64-bit)' }
+      });
+    } else if (id === 'trakt') {
+      blocks.push({
+        type: 'input', dispatch_action: true, optional: true,
+        element: { type: 'plain_text_input', action_id: 'update_trakt_username', initial_value: user.traktUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
+        label: { type: 'plain_text', text: 'Trakt Username' }
+      });
+    } else if (id === 'jellyfin') {
+      blocks.push({
+        type: 'input', dispatch_action: true, optional: true,
+        element: { type: 'plain_text_input', action_id: 'update_jellyfin_url', initial_value: user.jellyfinUrl || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
+        label: { type: 'plain_text', text: 'Jellyfin Server URL' }
+      });
+      blocks.push({
+        type: 'input', dispatch_action: true, optional: true,
+        element: { type: 'plain_text_input', action_id: 'update_jellyfin_apikey', initial_value: user.jellyfinApiKey || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
+        label: { type: 'plain_text', text: 'Jellyfin API Key' }
+      });
+      blocks.push({
+        type: 'input', dispatch_action: true, optional: true,
+        element: { type: 'plain_text_input', action_id: 'update_jellyfin_username', initial_value: user.jellyfinUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
+        label: { type: 'plain_text', text: 'Jellyfin Username' }
+      });
+    }
+
     blocks.push({
       type: 'input', dispatch_action: true, optional: true,
-      element: { type: 'plain_text_input', action_id: 'update_lastfm_username', initial_value: user.lastFmUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
-      label: { type: 'plain_text', text: 'Last.fm Username' }, hint: { type: 'plain_text', text: 'Press enter to save.' }
+      element: { type: 'plain_text_input', action_id: `update_${id}_emoji`, initial_value: user[`${id}Emoji`] || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
+      label: { type: 'plain_text', text: `${label} Emoji` }, hint: { type: 'plain_text', text: 'e.g. :headphones:' }
     });
-  }
-  if (userSources.includes('steam')) {
     blocks.push({
       type: 'input', dispatch_action: true, optional: true,
-      element: { type: 'plain_text_input', action_id: 'update_steam_id', initial_value: user.steamId || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
-      label: { type: 'plain_text', text: 'Steam ID (64-bit)' }, hint: { type: 'plain_text', text: 'Press enter to save.' }
-    });
-  }
-  if (userSources.includes('trakt')) {
-    blocks.push({
-      type: 'input', dispatch_action: true, optional: true,
-      element: { type: 'plain_text_input', action_id: 'update_trakt_username', initial_value: user.traktUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
-      label: { type: 'plain_text', text: 'Trakt Username' }, hint: { type: 'plain_text', text: 'Press enter to save.' }
+      element: { type: 'plain_text_input', action_id: `update_${id}_pfp`, initial_value: user[`${id}Pfp`] || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
+      label: { type: 'plain_text', text: `${label} PFP URL` }
     });
   }
 
+  addPlatformUI('spotify', 'Spotify');
+  addPlatformUI('lastfm', 'Last.fm');
+  addPlatformUI('steam', 'Steam');
+  addPlatformUI('wakatime', 'Hackatime');
+  addPlatformUI('trakt', 'Trakt');
+  addPlatformUI('jellyfin', 'Jellyfin');
+
   blocks.push(
+    { type: 'divider' },
     {
       type: 'section',
       text: { type: 'mrkdwn', text: `*Status Syncing:* ${isEnabled ? 'Active 🟢' : 'Paused 🔴'}` },
@@ -302,40 +388,28 @@ function getCustomizationBlocks(user) {
       }
     },
     {
-      type: 'input',
-      dispatch_action: true,
-      element: {
-        type: 'plain_text_input',
-        action_id: 'update_emoji',
-        initial_value: emoji,
-        dispatch_action_config: { trigger_actions_on: ['on_enter_pressed', 'on_character_entered'] }
-      },
-      label: { type: 'plain_text', text: 'Status Emoji (e.g. :headphones:)' },
-      hint: { type: 'plain_text', text: 'Comma-separate multiple for random! (e.g. :notes:, :headphones:)' }
+      type: 'input', dispatch_action: true,
+      element: { type: 'plain_text_input', action_id: 'update_emoji', initial_value: emoji, dispatch_action_config: { trigger_actions_on: ['on_enter_pressed', 'on_character_entered'] } },
+      label: { type: 'plain_text', text: 'Global Default Emoji' }, hint: { type: 'plain_text', text: 'Used if platform emoji is empty' }
     },
     {
-      type: 'input',
-      dispatch_action: true,
-      element: {
-        type: 'plain_text_input',
-        action_id: 'update_format',
-        initial_value: format,
-        dispatch_action_config: { trigger_actions_on: ['on_enter_pressed', 'on_character_entered'] }
-      },
-      label: { type: 'plain_text', text: 'Status Format String' },
-      hint: { type: 'plain_text', text: 'Placeholders: {song}/{title}/{game}/{project}, {artist}/{show}/{language}' }
-    },
-    {
-      type: 'section',
-      text: { type: 'mrkdwn', text: '*Behavior*\nClear status when music pauses' },
-      accessory: {
-        type: 'checkboxes',
-        action_id: 'update_clear_on_pause',
-        options: [{ text: { type: 'plain_text', text: 'Clear on pause' }, value: 'clear' }],
-        initial_options: clearOnPause ? [{ text: { type: 'plain_text', text: 'Clear on pause' }, value: 'clear' }] : []
-      }
+      type: 'input', dispatch_action: true,
+      element: { type: 'plain_text_input', action_id: 'update_format', initial_value: format, dispatch_action_config: { trigger_actions_on: ['on_enter_pressed', 'on_character_entered'] } },
+      label: { type: 'plain_text', text: 'Status Format String' }, hint: { type: 'plain_text', text: 'Placeholders: {song}/{title}/{game}/{project}, {artist}/{show}/{language}' }
     }
   );
+  
+  const clearOnPauseBlock = {
+    type: 'section',
+    text: { type: 'mrkdwn', text: '*Behavior*\nClear status when paused' },
+    accessory: {
+      type: 'checkboxes', action_id: 'update_clear_on_pause',
+      options: [{ text: { type: 'plain_text', text: 'Clear on pause' }, value: 'clear' }]
+    }
+  };
+  if (clearOnPause) clearOnPauseBlock.accessory.initial_options = [{ text: { type: 'plain_text', text: 'Clear on pause' }, value: 'clear' }];
+  blocks.push(clearOnPauseBlock);
+
   return blocks;
 }
 
@@ -439,6 +513,44 @@ slackApp.action('update_trakt_username', async ({ body, ack, action, client }) =
   await updateHomeView(body.user.id, client);
 });
 
+slackApp.action('update_jellyfin_url', async ({ body, ack, action }) => {
+  await ack();
+  db.saveUser(body.user.id, { jellyfinUrl: action.value?.trim() || '', lastTrack: null });
+});
+
+slackApp.action('update_jellyfin_apikey', async ({ body, ack, action }) => {
+  await ack();
+  db.saveUser(body.user.id, { jellyfinApiKey: action.value?.trim() || '', lastTrack: null });
+});
+
+slackApp.action('update_jellyfin_username', async ({ body, ack, action }) => {
+  await ack();
+  db.saveUser(body.user.id, { jellyfinUsername: action.value?.trim() || '', lastTrack: null });
+});
+
+slackApp.action(/^update_(.*)_(emoji|pfp)$/, async ({ body, ack, action }) => {
+  await ack();
+  const actionId = action.action_id;
+  const match = actionId.match(/^update_(.*)_(emoji|pfp)$/);
+  if (match) {
+    const platform = match[1];
+    const type = match[2];
+    let key = '';
+    let val = action.value ? action.value.trim() : '';
+
+    if (platform === 'default' && type === 'pfp') {
+      key = 'defaultPfp';
+    } else {
+      key = `${platform}${type === 'emoji' ? 'Emoji' : 'Pfp'}`;
+      if (type === 'emoji' && val) {
+        if (!val.startsWith(':')) val = ':' + val;
+        if (!val.endsWith(':')) val = val + ':';
+      }
+    }
+    db.saveUser(body.user.id, { [key]: val, lastTrack: null });
+  }
+});
+
 slackApp.action('unauth_hackatime', async ({ body, ack, client }) => {
   await ack();
   db.saveUser(body.user.id, { hackatimeAccessToken: null, lastTrack: null });
@@ -464,7 +576,61 @@ slackApp.action('update_data_source', async ({ body, ack, action, client }) => {
   await updateHomeView(body.user.id, client);
 });
 
+slackApp.action('update_display_mode', async ({ body, ack, action }) => {
+  await ack();
+  db.saveUser(body.user.id, { displayMode: action.selected_option.value, lastTrack: null });
+});
 
+slackApp.action('update_cycle_speed', async ({ body, ack, action }) => {
+  await ack();
+  db.saveUser(body.user.id, { cycleSpeed: parseInt(action.selected_option.value), lastTrack: null });
+});
+
+slackApp.action('update_lastfm_playcount', async ({ body, ack, action }) => {
+  await ack();
+  const isEnabled = action.selected_options.some(opt => opt.value === 'true');
+  db.saveUser(body.user.id, { lastFmPlayCount: isEnabled, lastTrack: null });
+});
+
+async function setProfilePicture(token, imageUrl) {
+  if (!imageUrl) return;
+  try {
+    const imgResponse = await axios.get(imageUrl, { responseType: 'arraybuffer' });
+    const buffer = Buffer.from(imgResponse.data, 'binary');
+    const FormData = require('form-data');
+    const form = new FormData();
+    form.append('image', buffer, { filename: 'pfp.jpg', contentType: imgResponse.headers['content-type'] });
+    const response = await axios.post('https://slack.com/api/users.setPhoto', form, {
+      headers: { ...form.getHeaders(), Authorization: `Bearer ${token}` }
+    });
+    if (!response.data.ok) throw new Error(response.data.error);
+  } catch (err) {
+    console.error('Failed to update PFP:', err.message);
+  }
+}
+
+async function fetchJellyfinActivity(serverUrl, apiKey, username) {
+  if (!serverUrl || !apiKey || !username) return null;
+  try {
+    const baseUrl = serverUrl.replace(/\/$/, '');
+    const response = await axios.get(`${baseUrl}/Sessions`, {
+      headers: { 'X-Emby-Token': apiKey },
+      validateStatus: (status) => status < 300
+    });
+    const session = response.data?.find(s => s.UserName?.toLowerCase() === username.toLowerCase() && s.NowPlayingItem);
+    if (!session) return null;
+    const item = session.NowPlayingItem;
+    if (item.Type === 'Episode') {
+      return { title: item.Name, show: item.SeriesName || 'TV Show', song: item.Name, artist: item.SeriesName };
+    } else if (item.Type === 'Movie') {
+      return { title: item.Name, show: 'Movie', song: item.Name, artist: 'Movie' };
+    }
+    return { title: item.Name, show: 'Jellyfin', song: item.Name, artist: 'Jellyfin' };
+  } catch (e) {
+    console.error('Jellyfin Error:', e.message);
+    return null;
+  }
+}
 
 async function fetchSpotifyToken(refreshToken) {
   const response = await axios.post(
@@ -511,7 +677,7 @@ async function fetchCurrentTrack(accessToken) {
   return { song, artist, album };
 }
 
-async function fetchLastFmTrack(username) {
+async function fetchLastFmTrack(username, fetchPlayCount = false) {
   if (!LASTFM_API_KEY) return null;
   const response = await axios.get('http://ws.audioscrobbler.com/2.0/', {
     params: {
@@ -531,7 +697,29 @@ async function fetchLastFmTrack(username) {
   const isPlaying = track['@attr'] && track['@attr'].nowplaying === 'true';
   if (!isPlaying) return null;
 
-  return { song: track.name, artist: track.artist?.['#text'] || 'Unknown Artist', album: track.album?.['#text'] || 'Unknown Album' };
+  const result = { song: track.name, artist: track.artist?.['#text'] || 'Unknown Artist', album: track.album?.['#text'] || 'Unknown Album' };
+
+  if (fetchPlayCount) {
+    try {
+      const infoRes = await axios.get('http://ws.audioscrobbler.com/2.0/', {
+        params: {
+          method: 'track.getInfo',
+          api_key: LASTFM_API_KEY,
+          artist: result.artist,
+          track: result.song,
+          username: username,
+          format: 'json'
+        }
+      });
+      if (infoRes.data?.track?.userplaycount) {
+        result.playcount = infoRes.data.track.userplaycount;
+      }
+    } catch (e) {
+      console.error('Failed to fetch playcount:', e.message);
+    }
+  }
+
+  return result;
 }
 
 async function fetchSteamGame(steamId) {
@@ -611,16 +799,17 @@ async function updateSlackStatus(token, text, emoji) {
 
 async function processUser(userId, user) {
   if (!user.slackToken || user.enabled === false) return;
-  if (!user.spotifyRefreshToken && !user.lastFmUsername && !user.steamId && !user.traktUsername && !user.hackatimeAccessToken) return;
+  if (!user.spotifyRefreshToken && !user.lastFmUsername && !user.steamId && !user.traktUsername && !user.hackatimeAccessToken && !user.jellyfinUrl) return;
 
   try {
     const activeSources = user.dataSources || (user.dataSource ? [user.dataSource] : ['spotify']);
     
     const fetchPromises = activeSources.map(async (source) => {
       try {
-        if (source === 'lastfm' && user.lastFmUsername) return { source, track: await fetchLastFmTrack(user.lastFmUsername) };
+        if (source === 'lastfm' && user.lastFmUsername) return { source, track: await fetchLastFmTrack(user.lastFmUsername, user.lastFmPlayCount) };
         if (source === 'steam' && user.steamId) return { source, track: await fetchSteamGame(user.steamId) };
         if (source === 'trakt' && user.traktUsername) return { source, track: await fetchTraktWatching(user.traktUsername) };
+        if (source === 'jellyfin' && user.jellyfinUrl && user.jellyfinApiKey && user.jellyfinUsername) return { source, track: await fetchJellyfinActivity(user.jellyfinUrl, user.jellyfinApiKey, user.jellyfinUsername) };
         if (source === 'wakatime' && user.hackatimeAccessToken) return { source, track: await fetchWakatimeActivity(user.hackatimeAccessToken) };
         if (source === 'spotify' && user.spotifyRefreshToken) {
           const accessToken = await fetchSpotifyToken(user.spotifyRefreshToken);
@@ -637,40 +826,68 @@ async function processUser(userId, user) {
     const clearOnPause = user.clearOnPause !== false;
 
     if (activeTracks.length > 0) {
-      let cycleIndex = user.cycleIndex || 0;
-      if (cycleIndex >= activeTracks.length) cycleIndex = 0;
-      
-      const current = activeTracks[cycleIndex];
-      const nextCycleIndex = (cycleIndex + 1) % activeTracks.length;
-      
-      db.saveUser(userId, { cycleIndex: nextCycleIndex });
-
       let text = '';
       let emoji = user.statusEmoji || defaultEmoji;
-      
-      if (current.source === 'spotify' || current.source === 'lastfm') {
-        text = `${current.track.song} - ${current.track.artist}`;
-      } else if (current.source === 'steam') {
-        text = `Playing ${current.track.game}`;
-        emoji = ':video_game:';
-      } else if (current.source === 'wakatime') {
-        text = `Coding in ${current.track.language}`;
-        emoji = ':computer:';
-      } else if (current.source === 'trakt') {
-        text = `Watching ${current.track.show || current.track.title}`;
-        emoji = ':tv:';
-      }
+      let targetPfp = user.defaultPfp || null;
+      const displayMode = user.displayMode || 'cycle';
 
-      if (activeSources.length === 1 && user.statusFormat) {
-        text = user.statusFormat
-          .replace('{song}', current.track.song || '')
-          .replace('{artist}', current.track.artist || '')
-          .replace('{album}', current.track.album || '')
-          .replace('{game}', current.track.game || '')
-          .replace('{show}', current.track.show || '')
-          .replace('{title}', current.track.title || '')
-          .replace('{project}', current.track.project || '')
-          .replace('{language}', current.track.language || '');
+      if (displayMode === 'combined') {
+        const texts = activeTracks.map(current => {
+          if (current.source === 'spotify' || current.source === 'lastfm') return `${current.track.song} - ${current.track.artist}${current.track.playcount ? ` (${current.track.playcount} plays)` : ''}`;
+          if (current.source === 'steam') return `Playing ${current.track.game}`;
+          if (current.source === 'wakatime') return `Coding in ${current.track.language}`;
+          if (current.source === 'trakt' || current.source === 'jellyfin') return `Watching ${current.track.show || current.track.title}`;
+          return '';
+        }).filter(t => t.length > 0);
+        
+        text = texts.join(' | ');
+
+        if (activeTracks[0]) {
+          const first = activeTracks[0];
+          if (user[`${first.source}Emoji`]) emoji = user[`${first.source}Emoji`];
+          if (user[`${first.source}Pfp`]) targetPfp = user[`${first.source}Pfp`];
+        }
+      } else {
+        let cycleIndex = user.cycleIndex || 0;
+        if (cycleIndex >= activeTracks.length) cycleIndex = 0;
+        const current = activeTracks[cycleIndex];
+        
+        const cycleSpeed = user.cycleSpeed || 10;
+        const lastCycleTime = user.lastCycleTime || 0;
+        const now = Date.now();
+        
+        if (now - lastCycleTime >= cycleSpeed * 1000) {
+          const nextCycleIndex = (cycleIndex + 1) % activeTracks.length;
+          db.saveUser(userId, { cycleIndex: nextCycleIndex, lastCycleTime: now });
+        }
+        
+        if (current.source === 'spotify' || current.source === 'lastfm') {
+          text = `${current.track.song} - ${current.track.artist}${current.track.playcount ? ` (${current.track.playcount} plays)` : ''}`;
+        } else if (current.source === 'steam') {
+          text = `Playing ${current.track.game}`;
+          if (!user[`steamEmoji`]) emoji = ':video_game:';
+        } else if (current.source === 'wakatime') {
+          text = `Coding in ${current.track.language}`;
+          if (!user[`wakatimeEmoji`]) emoji = ':computer:';
+        } else if (current.source === 'trakt' || current.source === 'jellyfin') {
+          text = `Watching ${current.track.show || current.track.title}`;
+          if (!user[`${current.source}Emoji`]) emoji = ':tv:';
+        }
+
+        if (user[`${current.source}Emoji`]) emoji = user[`${current.source}Emoji`];
+        if (user[`${current.source}Pfp`]) targetPfp = user[`${current.source}Pfp`];
+
+        if (activeSources.length === 1 && user.statusFormat) {
+          text = user.statusFormat
+            .replace('{song}', current.track.song || '')
+            .replace('{artist}', current.track.artist || '')
+            .replace('{album}', current.track.album || '')
+            .replace('{game}', current.track.game || '')
+            .replace('{show}', current.track.show || '')
+            .replace('{title}', current.track.title || '')
+            .replace('{project}', current.track.project || '')
+            .replace('{language}', current.track.language || '');
+        }
       }
 
       if (emoji.includes(',')) {
@@ -688,10 +905,20 @@ async function processUser(userId, user) {
         await updateSlackStatus(user.slackToken, text, emoji);
         db.saveUser(userId, { lastTrack: text });
       }
+
+      if (targetPfp && targetPfp !== user.lastPfpUrl) {
+        await setProfilePicture(user.slackToken, targetPfp);
+        db.saveUser(userId, { lastPfpUrl: targetPfp });
+      }
+
     } else if (clearOnPause) {
       if (user.lastTrack) {
         await updateSlackStatus(user.slackToken, '', '');
         db.saveUser(userId, { lastTrack: null });
+      }
+      if (user.defaultPfp && user.defaultPfp !== user.lastPfpUrl) {
+        await setProfilePicture(user.slackToken, user.defaultPfp);
+        db.saveUser(userId, { lastPfpUrl: user.defaultPfp });
       }
     }
   } catch (err) {
