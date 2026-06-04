@@ -141,6 +141,7 @@ server.get('/spotify/callback', async (req, res) => {
     );
 
     db.saveUser(userId, { spotifyRefreshToken: response.data.refresh_token });
+    await updateHomeView(userId, slackApp.client);
 
     res.send(`
       <html><body style="font-family:sans-serif; text-align:center; padding: 50px;">
@@ -191,6 +192,7 @@ server.get('/hackatime/callback', async (req, res) => {
     );
 
     db.saveUser(userId, { hackatimeAccessToken: response.data.access_token });
+    await updateHomeView(userId, slackApp.client);
 
     res.send(`
       <html><body style="font-family:sans-serif; text-align:center; padding: 50px;">
@@ -230,6 +232,7 @@ server.get('/trakt/callback', async (req, res) => {
       traktAccessToken: response.data.access_token,
       traktRefreshToken: response.data.refresh_token
     });
+    await updateHomeView(userId, slackApp.client);
 
     res.send('Trakt authenticated successfully! You can close this tab and return to Slack.');
     const client = slackApp.client;
@@ -263,6 +266,7 @@ server.get('/xbox/callback', async (req, res) => {
       xboxXstsToken: xsts.Token, 
       xboxUserHash: xsts.DisplayClaims.xui[0].uhs 
     });
+    await updateHomeView(userId, slackApp.client);
 
     res.send('Xbox authenticated successfully! You can close this tab and return to Slack.');
     const client = slackApp.client;
@@ -647,23 +651,26 @@ slackApp.action('toggle_sync', async ({ body, ack, client }) => {
   await updateHomeView(userId, client);
 });
 
-slackApp.action('update_emoji', async ({ body, ack, action }) => {
+slackApp.action('update_emoji', async ({ body, ack, action, client }) => {
   await ack();
   let emoji = action.value.trim();
   if (emoji && !emoji.startsWith(':')) emoji = ':' + emoji;
   if (emoji && !emoji.endsWith(':')) emoji = emoji + ':';
   db.saveUser(body.user.id, { statusEmoji: emoji, lastTrack: null });
+  await updateHomeView(body.user.id, client);
 });
 
-slackApp.action('update_format', async ({ body, ack, action }) => {
+slackApp.action('update_format', async ({ body, ack, action, client }) => {
   await ack();
   db.saveUser(body.user.id, { statusFormat: action.value, lastTrack: null });
+  await updateHomeView(body.user.id, client);
 });
 
-slackApp.action('update_clear_on_pause', async ({ body, ack, action }) => {
+slackApp.action('update_clear_on_pause', async ({ body, ack, action, client }) => {
   await ack();
   const isClearOnPause = action.selected_options.some(opt => opt.value === 'clear');
   db.saveUser(body.user.id, { clearOnPause: isClearOnPause, lastTrack: null });
+  await updateHomeView(body.user.id, client);
 });
 
 slackApp.action('update_lastfm_username', async ({ body, ack, action, client }) => {
@@ -672,9 +679,10 @@ slackApp.action('update_lastfm_username', async ({ body, ack, action, client }) 
   await updateHomeView(body.user.id, client);
 });
 
-slackApp.action('update_lastfm_apikey', async ({ body, ack, action }) => {
+slackApp.action('update_lastfm_apikey', async ({ body, ack, action, client }) => {
   await ack();
   db.saveUser(body.user.id, { lastFmApiKey: action.value?.trim() || '', lastTrack: null });
+  await updateHomeView(body.user.id, client);
 });
 
 slackApp.action('update_steam_id', async ({ body, ack, action, client }) => {
@@ -683,9 +691,10 @@ slackApp.action('update_steam_id', async ({ body, ack, action, client }) => {
   await updateHomeView(body.user.id, client);
 });
 
-slackApp.action('update_steam_apikey', async ({ body, ack, action }) => {
+slackApp.action('update_steam_apikey', async ({ body, ack, action, client }) => {
   await ack();
   db.saveUser(body.user.id, { steamApiKey: action.value?.trim() || '', lastTrack: null });
+  await updateHomeView(body.user.id, client);
 });
 
 slackApp.action('update_github_username', async ({ body, ack, action, client }) => {
@@ -700,49 +709,58 @@ slackApp.action('update_trakt_username', async ({ body, ack, action, client }) =
   await updateHomeView(body.user.id, client);
 });
 
-slackApp.action('update_trakt_clientid', async ({ body, ack, action }) => {
+slackApp.action('update_trakt_clientid', async ({ body, ack, action, client }) => {
   await ack();
   db.saveUser(body.user.id, { traktClientId: action.value?.trim() || '', lastTrack: null });
+  await updateHomeView(body.user.id, client);
 });
 
-slackApp.action('update_plex_url', async ({ body, ack, action }) => {
+slackApp.action('update_plex_url', async ({ body, ack, action, client }) => {
   await ack();
   db.saveUser(body.user.id, { plexUrl: action.value?.trim() || '', lastTrack: null });
+  await updateHomeView(body.user.id, client);
 });
 
-slackApp.action('update_plex_token', async ({ body, ack, action }) => {
+slackApp.action('update_plex_token', async ({ body, ack, action, client }) => {
   await ack();
   db.saveUser(body.user.id, { plexToken: action.value?.trim() || '', lastTrack: null });
+  await updateHomeView(body.user.id, client);
 });
 
-slackApp.action('update_lichess_username', async ({ body, ack, action }) => {
+slackApp.action('update_lichess_username', async ({ body, ack, action, client }) => {
   await ack();
   db.saveUser(body.user.id, { lichessUsername: action.value?.trim() || '', lastTrack: null });
+  await updateHomeView(body.user.id, client);
 });
 
-slackApp.action('update_chesscom_username', async ({ body, ack, action }) => {
+slackApp.action('update_chesscom_username', async ({ body, ack, action, client }) => {
   await ack();
   db.saveUser(body.user.id, { chesscomUsername: action.value?.trim() || '', lastTrack: null });
+  await updateHomeView(body.user.id, client);
 });
 
-slackApp.action('update_duolingo_username', async ({ body, ack, action }) => {
+slackApp.action('update_duolingo_username', async ({ body, ack, action, client }) => {
   await ack();
   db.saveUser(body.user.id, { duolingoUsername: action.value?.trim() || '', lastTrack: null });
+  await updateHomeView(body.user.id, client);
 });
 
-slackApp.action('update_jellyfin_url', async ({ body, ack, action }) => {
+slackApp.action('update_jellyfin_url', async ({ body, ack, action, client }) => {
   await ack();
   db.saveUser(body.user.id, { jellyfinUrl: action.value?.trim() || '', lastTrack: null });
+  await updateHomeView(body.user.id, client);
 });
 
-slackApp.action('update_jellyfin_apikey', async ({ body, ack, action }) => {
+slackApp.action('update_jellyfin_apikey', async ({ body, ack, action, client }) => {
   await ack();
   db.saveUser(body.user.id, { jellyfinApiKey: action.value?.trim() || '', lastTrack: null });
+  await updateHomeView(body.user.id, client);
 });
 
-slackApp.action('update_jellyfin_username', async ({ body, ack, action }) => {
+slackApp.action('update_jellyfin_username', async ({ body, ack, action, client }) => {
   await ack();
   db.saveUser(body.user.id, { jellyfinUsername: action.value?.trim() || '', lastTrack: null });
+  await updateHomeView(body.user.id, client);
 });
 
 slackApp.action(/^update_(.*)_(emoji|pfp)$/, async ({ body, ack, action }) => {
@@ -808,20 +826,23 @@ slackApp.action('update_data_source', async ({ body, ack, action, client }) => {
   await updateHomeView(body.user.id, client);
 });
 
-slackApp.action('update_display_mode', async ({ body, ack, action }) => {
+slackApp.action('update_display_mode', async ({ body, ack, action, client }) => {
   await ack();
   db.saveUser(body.user.id, { displayMode: action.selected_option.value, lastTrack: null });
+  await updateHomeView(body.user.id, client);
 });
 
-slackApp.action('update_cycle_speed', async ({ body, ack, action }) => {
+slackApp.action('update_cycle_speed', async ({ body, ack, action, client }) => {
   await ack();
   db.saveUser(body.user.id, { cycleSpeed: parseInt(action.selected_option.value), lastTrack: null });
+  await updateHomeView(body.user.id, client);
 });
 
-slackApp.action('update_lastfm_playcount', async ({ body, ack, action }) => {
+slackApp.action('update_lastfm_playcount', async ({ body, ack, action, client }) => {
   await ack();
   const isEnabled = action.selected_options.some(opt => opt.value === 'true');
   db.saveUser(body.user.id, { lastFmPlayCount: isEnabled, lastTrack: null });
+  await updateHomeView(body.user.id, client);
 });
 
 async function setProfilePicture(token, imageUrl) {
