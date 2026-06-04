@@ -279,77 +279,40 @@ server.get('/xbox/callback', async (req, res) => {
 });
 
 function getAccountBlocks(user, userId) {
-  const slackBtn = {
-    type: 'button',
-    text: { type: 'plain_text', text: user.slackToken ? 'Unauthorize' : 'Authorize Slack' },
-    style: user.slackToken ? 'danger' : 'primary',
-    action_id: user.slackToken ? 'unauth_slack' : 'link_slack'
+  const createAuthBtn = (isConnected, authText, actionPrefix, url) => {
+    const btn = {
+      type: 'button',
+      text: { type: 'plain_text', text: isConnected ? 'Unlink' : authText },
+      style: isConnected ? 'danger' : 'primary',
+      action_id: isConnected ? `unauth_${actionPrefix}` : `link_${actionPrefix}`
+    };
+    if (!isConnected && url) btn.url = url;
+    return btn;
   };
-  if (!user.slackToken) slackBtn.url = `${PUBLIC_URL}/install`;
 
-  const spotifyBtn = {
-    type: 'button',
-    text: { type: 'plain_text', text: user.spotifyRefreshToken ? 'Unauthorize' : 'Connect Spotify' },
-    style: user.spotifyRefreshToken ? 'danger' : 'primary',
-    action_id: user.spotifyRefreshToken ? 'unauth_spotify' : 'link_spotify'
-  };
-  if (!user.spotifyRefreshToken) spotifyBtn.url = `${PUBLIC_URL}/spotify/login?slackUserId=${userId}`;
+  const getSection = (name, isConnected, btn) => ({
+    type: 'section',
+    text: { type: 'mrkdwn', text: isConnected ? `✅ *${name}*: Connected` : `❌ *${name}*: Not Connected` },
+    accessory: btn
+  });
 
-  const hackatimeBtn = {
-    type: 'button',
-    text: { type: 'plain_text', text: user.hackatimeAccessToken ? 'Unauthorize' : 'Connect Hackatime' },
-    style: user.hackatimeAccessToken ? 'danger' : 'primary',
-    action_id: user.hackatimeAccessToken ? 'unauth_hackatime' : 'link_hackatime'
-  };
-  if (!user.hackatimeAccessToken) hackatimeBtn.url = `${PUBLIC_URL}/hackatime/login?slackUserId=${userId}`;
-
-  let blocks = [
+  const blocks = [
     { type: 'divider' },
     { type: 'section', text: { type: 'mrkdwn', text: '*Accounts*' } },
-    { type: 'section', text: { type: 'mrkdwn', text: user.slackToken ? '✅ *Slack*: Connected' : '❌ *Slack*: Not Connected' }, accessory: slackBtn },
-    { type: 'section', text: { type: 'mrkdwn', text: user.spotifyRefreshToken ? '✅ *Spotify*: Connected' : '❌ *Spotify*: Not Connected' }, accessory: spotifyBtn }
+    getSection('Slack', user.slackToken, createAuthBtn(user.slackToken, 'Authorize Slack', 'slack', `${PUBLIC_URL}/install`)),
+    getSection('Spotify', user.spotifyRefreshToken, createAuthBtn(user.spotifyRefreshToken, 'Connect Spotify', 'spotify', `${PUBLIC_URL}/spotify/login?slackUserId=${userId}`))
   ];
 
   if (HACKATIME_CLIENT_ID && HACKATIME_CLIENT_SECRET) {
-    blocks.push({
-      type: 'section',
-      text: { type: 'mrkdwn', text: user.hackatimeAccessToken ? '✅ *Hackatime*: Connected' : '❌ *Hackatime*: Not Connected' },
-      accessory: hackatimeBtn
-    });
+    blocks.push(getSection('Hackatime', user.hackatimeAccessToken, createAuthBtn(user.hackatimeAccessToken, 'Connect Hackatime', 'hackatime', `${PUBLIC_URL}/hackatime/login?slackUserId=${userId}`)));
   }
 
-
-
   if (XBOX_CLIENT_ID && XBOX_CLIENT_SECRET) {
-    if (user.xboxXstsToken) {
-      blocks.push({
-        type: 'section',
-        text: { type: 'mrkdwn', text: '*Xbox Live* :white_check_mark:\nAuthenticated' },
-        accessory: { type: 'button', text: { type: 'plain_text', text: 'Unlink' }, action_id: 'unauth_xbox', style: 'danger' }
-      });
-    } else {
-      blocks.push({
-        type: 'section',
-        text: { type: 'mrkdwn', text: '*Xbox Live* :x:\nNot authenticated' },
-        accessory: { type: 'button', text: { type: 'plain_text', text: 'Link Xbox' }, action_id: 'link_xbox', url: `${PUBLIC_URL}/xbox/auth?user=${userId}`, style: 'primary' }
-      });
-    }
+    blocks.push(getSection('Xbox Live', user.xboxXstsToken, createAuthBtn(user.xboxXstsToken, 'Link Xbox', 'xbox', `${PUBLIC_URL}/xbox/auth?user=${userId}`)));
   }
 
   if (TRAKT_CLIENT_ID && TRAKT_CLIENT_SECRET) {
-    if (user.traktAccessToken) {
-      blocks.push({
-        type: 'section',
-        text: { type: 'mrkdwn', text: '*Trakt* :white_check_mark:\nAuthenticated' },
-        accessory: { type: 'button', text: { type: 'plain_text', text: 'Unlink' }, action_id: 'unauth_trakt', style: 'danger' }
-      });
-    } else {
-      blocks.push({
-        type: 'section',
-        text: { type: 'mrkdwn', text: '*Trakt* :x:\nNot authenticated' },
-        accessory: { type: 'button', text: { type: 'plain_text', text: 'Link Trakt' }, action_id: 'link_trakt', url: `${PUBLIC_URL}/trakt/auth?user=${userId}`, style: 'primary' }
-      });
-    }
+    blocks.push(getSection('Trakt', user.traktAccessToken, createAuthBtn(user.traktAccessToken, 'Link Trakt', 'trakt', `${PUBLIC_URL}/trakt/auth?user=${userId}`)));
   }
 
   return blocks;
@@ -428,8 +391,9 @@ function getCustomizationBlocks(user) {
     ]
   });
 
-  blocks.push({ type: 'divider' });
-  blocks.push({
+  blocks.push(
+    { type: 'divider' },
+    {
     type: 'input', dispatch_action: true, optional: true,
     element: { type: 'plain_text_input', action_id: 'update_default_pfp', initial_value: user.defaultPfp || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
     label: { type: 'plain_text', text: 'Default PFP URL' }, hint: { type: 'plain_text', text: 'Reverts to this when nothing is playing.' }
@@ -437,16 +401,15 @@ function getCustomizationBlocks(user) {
 
   function addPlatformUI(id, label) {
     if (!userSources.includes(id)) return;
-    blocks.push({ type: 'divider' });
-    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*${label} Settings*` } });
+    blocks.push({ type: 'divider' }, { type: 'section', text: { type: 'mrkdwn', text: `*${label} Settings*` } });
 
     if (id === 'lastfm') {
       blocks.push({
         type: 'input', dispatch_action: true, optional: true,
         element: { type: 'plain_text_input', action_id: 'update_lastfm_username', initial_value: user.lastFmUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
         label: { type: 'plain_text', text: 'Last.fm Username' }
-      });
-      blocks.push({
+      },
+      {
         type: 'input', dispatch_action: true, optional: true,
         element: { type: 'plain_text_input', action_id: 'update_lastfm_apikey', initial_value: user.lastFmApiKey || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
         label: { type: 'plain_text', text: 'Last.fm API Key' },
@@ -463,8 +426,8 @@ function getCustomizationBlocks(user) {
         type: 'input', dispatch_action: true, optional: true,
         element: { type: 'plain_text_input', action_id: 'update_steam_id', initial_value: user.steamId || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
         label: { type: 'plain_text', text: 'Steam ID (64-bit)' }
-      });
-      blocks.push({
+      },
+      {
         type: 'input', dispatch_action: true, optional: true,
         element: { type: 'plain_text_input', action_id: 'update_steam_apikey', initial_value: user.steamApiKey || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
         label: { type: 'plain_text', text: 'Steam API Key' },
@@ -482,13 +445,13 @@ function getCustomizationBlocks(user) {
         type: 'input', dispatch_action: true, optional: true,
         element: { type: 'plain_text_input', action_id: 'update_jellyfin_url', initial_value: user.jellyfinUrl || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
         label: { type: 'plain_text', text: 'Jellyfin Server URL' }
-      });
-      blocks.push({
+      },
+      {
         type: 'input', dispatch_action: true, optional: true,
         element: { type: 'plain_text_input', action_id: 'update_jellyfin_apikey', initial_value: user.jellyfinApiKey || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
         label: { type: 'plain_text', text: 'Jellyfin API Key' }
-      });
-      blocks.push({
+      },
+      {
         type: 'input', dispatch_action: true, optional: true,
         element: { type: 'plain_text_input', action_id: 'update_jellyfin_username', initial_value: user.jellyfinUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
         label: { type: 'plain_text', text: 'Jellyfin Username' }
@@ -498,8 +461,8 @@ function getCustomizationBlocks(user) {
         type: 'input', dispatch_action: true, optional: true,
         element: { type: 'plain_text_input', action_id: 'update_plex_url', initial_value: user.plexUrl || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
         label: { type: 'plain_text', text: 'Plex Server URL' }
-      });
-      blocks.push({
+      },
+      {
         type: 'input', dispatch_action: true, optional: true,
         element: { type: 'plain_text_input', action_id: 'update_plex_token', initial_value: user.plexToken || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
         label: { type: 'plain_text', text: 'Plex Token' }
@@ -528,8 +491,8 @@ function getCustomizationBlocks(user) {
       type: 'input', dispatch_action: true, optional: true,
       element: { type: 'plain_text_input', action_id: `update_${id}_emoji`, initial_value: user[`${id}Emoji`] || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
       label: { type: 'plain_text', text: `${label} Emoji` }, hint: { type: 'plain_text', text: 'e.g. :headphones:' }
-    });
-    blocks.push({
+    },
+    {
       type: 'input', dispatch_action: true, optional: true,
       element: { type: 'plain_text_input', action_id: `update_${id}_pfp`, initial_value: user[`${id}Pfp`] || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
       label: { type: 'plain_text', text: `${label} PFP URL` }
@@ -763,27 +726,23 @@ slackApp.action('update_jellyfin_username', async ({ body, ack, action, client }
   await updateHomeView(body.user.id, client);
 });
 
-slackApp.action(/^update_(.*)_(emoji|pfp)$/, async ({ body, ack, action }) => {
+slackApp.action(/^update_(.*)_(emoji|pfp)$/, async ({ body, ack, action, client }) => {
   await ack();
-  const actionId = action.action_id;
-  const match = actionId.match(/^update_(.*)_(emoji|pfp)$/);
-  if (match) {
-    const platform = match[1];
-    const type = match[2];
-    let key = '';
-    let val = action.value ? action.value.trim() : '';
+  const match = action.action_id.match(/^update_(.*)_(emoji|pfp)$/);
+  if (!match) return;
 
-    if (platform === 'default' && type === 'pfp') {
-      key = 'defaultPfp';
-    } else {
-      key = `${platform}${type === 'emoji' ? 'Emoji' : 'Pfp'}`;
-      if (type === 'emoji' && val) {
-        if (!val.startsWith(':')) val = ':' + val;
-        if (!val.endsWith(':')) val = val + ':';
-      }
-    }
-    db.saveUser(body.user.id, { [key]: val, lastTrack: null });
+  const [, platform, type] = match;
+  let val = action.value?.trim() || '';
+
+  if (type === 'emoji' && val) {
+    if (!val.startsWith(':')) val = ':' + val;
+    if (!val.endsWith(':')) val = val + ':';
   }
+
+  const key = platform === 'default' ? 'defaultPfp' : `${platform}${type === 'emoji' ? 'Emoji' : 'Pfp'}`;
+  
+  db.saveUser(body.user.id, { [key]: val, lastTrack: null });
+  if (client) await updateHomeView(body.user.id, client);
 });
 
 slackApp.action('link_hackatime', async ({ ack }) => { await ack(); });
@@ -1203,22 +1162,24 @@ async function processUser(userId, user) {
         return ':headphones:';
       };
 
+      const formatTrackText = (current) => {
+        if (current.source === 'spotify' || current.source === 'lastfm') return `${current.track.song} - ${current.track.artist}` + (current.track.playcount ? ` (${current.track.playcount} plays)` : '');
+        if (current.source === 'steam' || current.source === 'xbox') return `Playing ${current.track.game}`;
+        if (current.source === 'wakatime') return `Coding in ${current.track.language}`;
+        if (current.source === 'trakt' || current.source === 'jellyfin') return `Watching ${current.track.show || current.track.title}`;
+        if (current.source === 'plex') {
+          if (current.track.type === 'episode') return `Watching ${current.track.show} - ${current.track.title}`;
+          if (current.track.type === 'movie') return `Watching ${current.track.title}`;
+          if (current.track.type === 'audio') return `Listening to ${current.track.title} - ${current.track.artist}`;
+        }
+        if (current.source === 'lichess') return `Playing ${current.track.gameType} vs ${current.track.opponent}`;
+        if (current.source === 'chesscom') return `Playing Chess`;
+        if (current.source === 'duolingo') return `Learning ${current.track.currentLanguage} (🔥 ${current.track.streak} days)`;
+        return '';
+      };
+
       if (user.displayMode === 'combined') {
-        const texts = activeTracks.map(current => {
-          if (current.source === 'spotify' || current.source === 'lastfm') return `${current.track.song} - ${current.track.artist}` + (current.track.playcount ? ` (${current.track.playcount} plays)` : '');
-          if (current.source === 'steam') return `Playing ${current.track.game}`;
-          if (current.source === 'wakatime') return `Coding in ${current.track.language}`;
-          if (current.source === 'trakt' || current.source === 'jellyfin') return `Watching ${current.track.show || current.track.title}`;
-          if (current.source === 'plex') {
-            if (current.track.type === 'episode') return `Watching ${current.track.show} - ${current.track.title}`;
-            if (current.track.type === 'movie') return `Watching ${current.track.title}`;
-            if (current.track.type === 'audio') return `Listening to ${current.track.title} - ${current.track.artist}`;
-          }
-          if (current.source === 'lichess') return `Playing ${current.track.gameType} vs ${current.track.opponent}`;
-          if (current.source === 'chesscom') return `Playing Chess`;
-          if (current.source === 'duolingo') return `Learning ${current.track.currentLanguage} (🔥 ${current.track.streak} days)`;
-          return '';
-        }).filter(t => t.length > 0);
+        const texts = activeTracks.map(formatTrackText).filter(t => t.length > 0);
         
         text = texts.join(' | ');
 
@@ -1241,27 +1202,7 @@ async function processUser(userId, user) {
           db.saveUser(userId, { cycleIndex: nextCycleIndex, lastCycleTime: now });
         }
         
-        if (current.source === 'spotify' || current.source === 'lastfm') {
-          text = `${current.track.song} - ${current.track.artist}` + (current.track.playcount ? ` (${current.track.playcount} plays)` : '');
-        } else if (current.source === 'xbox') {
-          text = `Playing ${current.track.game}`;
-        } else if (current.source === 'steam') {
-          text = `Playing ${current.track.game}`;
-        } else if (current.source === 'wakatime') {
-          text = `Coding in ${current.track.language}`;
-        } else if (current.source === 'trakt' || current.source === 'jellyfin') {
-          text = `Watching ${current.track.show || current.track.title}`;
-        } else if (current.source === 'plex') {
-          if (current.track.type === 'episode') text = `Watching ${current.track.show} - ${current.track.title}`;
-          else if (current.track.type === 'movie') text = `Watching ${current.track.title}`;
-          else if (current.track.type === 'audio') text = `Listening to ${current.track.title} - ${current.track.artist}`;
-        } else if (current.source === 'lichess') {
-          text = `Playing ${current.track.gameType} vs ${current.track.opponent}`;
-        } else if (current.source === 'chesscom') {
-          text = `Playing Chess`;
-        } else if (current.source === 'duolingo') {
-          text = `Learning ${current.track.currentLanguage} (🔥 ${current.track.streak} days)`;
-        }
+        text = formatTrackText(current);
 
         emoji = user[`${current.source}Emoji`] || getDefaultEmoji(current.source, current.track);
         if (user[`${current.source}Pfp`]) targetPfp = user[`${current.source}Pfp`];
