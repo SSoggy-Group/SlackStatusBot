@@ -35,6 +35,7 @@ if (requiredVars.length > 0) {
 }
 
 const server = express();
+server.disable('x-powered-by');
 const slackApp = new App({
   token: SLACK_BOT_TOKEN,
   appToken: SLACK_APP_TOKEN,
@@ -138,15 +139,7 @@ server.get('/spotify/callback', async (req, res) => {
 
 // UI Rendering
 
-async function updateHomeView(userId, client) {
-  const user = db.getUser(userId) || {};
-  const blocks = [
-    {
-      type: 'header',
-      text: { type: 'plain_text', text: 'Settings' }
-    }
-  ];
-
+function getAccountBlocks(user, userId) {
   const slackBtn = {
     type: 'button',
     text: { type: 'plain_text', text: user.slackToken ? 'Unauthorize' : 'Authorize Slack' },
@@ -163,93 +156,83 @@ async function updateHomeView(userId, client) {
   };
   if (!user.spotifyRefreshToken) spotifyBtn.url = `${PUBLIC_URL}/spotify/login?slackUserId=${userId}`;
 
-  blocks.push(
+  return [
     { type: 'divider' },
+    { type: 'section', text: { type: 'mrkdwn', text: '*Accounts*' } },
+    { type: 'section', text: { type: 'mrkdwn', text: user.slackToken ? '✅ *Slack*: Connected' : '❌ *Slack*: Not Connected' }, accessory: slackBtn },
+    { type: 'section', text: { type: 'mrkdwn', text: user.spotifyRefreshToken ? '✅ *Spotify*: Connected' : '❌ *Spotify*: Not Connected' }, accessory: spotifyBtn }
+  ];
+}
+
+function getCustomizationBlocks(user) {
+  const isEnabled = user.enabled !== false;
+  const format = user.statusFormat || defaultFormat;
+  const emoji = user.statusEmoji || defaultEmoji;
+  const clearOnPause = user.clearOnPause !== false;
+
+  return [
+    { type: 'divider' },
+    { type: 'section', text: { type: 'mrkdwn', text: '*Customization*' } },
     {
       type: 'section',
-      text: { type: 'mrkdwn', text: '*Accounts*' }
+      text: { type: 'mrkdwn', text: `*Status Syncing:* ${isEnabled ? 'Active 🟢' : 'Paused 🔴'}` },
+      accessory: {
+        type: 'button',
+        text: { type: 'plain_text', text: isEnabled ? 'Disable Sync' : 'Enable Sync' },
+        style: isEnabled ? 'danger' : 'primary',
+        action_id: 'toggle_sync',
+        value: isEnabled ? 'disable' : 'enable'
+      }
+    },
+    {
+      type: 'input',
+      dispatch_action: true,
+      element: {
+        type: 'plain_text_input',
+        action_id: 'update_emoji',
+        initial_value: emoji,
+        dispatch_action_config: { trigger_actions_on: ['on_enter_pressed', 'on_character_entered'] }
+      },
+      label: { type: 'plain_text', text: 'Status Emoji (e.g. :headphones:)' },
+      hint: { type: 'plain_text', text: 'Comma-separate multiple for random! (e.g. :notes:, :headphones:)' }
+    },
+    {
+      type: 'input',
+      dispatch_action: true,
+      element: {
+        type: 'plain_text_input',
+        action_id: 'update_format',
+        initial_value: format,
+        dispatch_action_config: { trigger_actions_on: ['on_enter_pressed', 'on_character_entered'] }
+      },
+      label: { type: 'plain_text', text: 'Status Format String' },
+      hint: { type: 'plain_text', text: 'Placeholders: {song}, {artist}, {album}' }
     },
     {
       type: 'section',
-      text: { type: 'mrkdwn', text: user.slackToken ? '✅ *Slack*: Connected' : '❌ *Slack*: Not Connected' },
-      accessory: slackBtn
-    },
-    {
-      type: 'section',
-      text: { type: 'mrkdwn', text: user.spotifyRefreshToken ? '✅ *Spotify*: Connected' : '❌ *Spotify*: Not Connected' },
-      accessory: spotifyBtn
+      text: { type: 'mrkdwn', text: '*Behavior*\nClear status when music pauses' },
+      accessory: {
+        type: 'checkboxes',
+        action_id: 'update_clear_on_pause',
+        options: [{ text: { type: 'plain_text', text: 'Clear on pause' }, value: 'clear' }],
+        initial_options: clearOnPause ? [{ text: { type: 'plain_text', text: 'Clear on pause' }, value: 'clear' }] : []
+      }
     }
-  );
+  ];
+}
+
+async function updateHomeView(userId, client) {
+  const user = db.getUser(userId) || {};
+  let blocks = [
+    { type: 'header', text: { type: 'plain_text', text: 'Settings' } },
+    ...getAccountBlocks(user, userId)
+  ];
 
   if (user.slackToken && user.spotifyRefreshToken) {
-    const isEnabled = user.enabled !== false;
-    const format = user.statusFormat || defaultFormat;
-    const emoji = user.statusEmoji || defaultEmoji;
-    const clearOnPause = user.clearOnPause !== false;
-
-    blocks.push(
-      { type: 'divider' },
-      {
-        type: 'section',
-        text: { type: 'mrkdwn', text: '*Customization*' }
-      },
-      {
-        type: 'section',
-        text: { type: 'mrkdwn', text: `*Status Syncing:* ${isEnabled ? 'Active 🟢' : 'Paused 🔴'}` },
-        accessory: {
-          type: 'button',
-          text: { type: 'plain_text', text: isEnabled ? 'Disable Sync' : 'Enable Sync' },
-          style: isEnabled ? 'danger' : 'primary',
-          action_id: 'toggle_sync',
-          value: isEnabled ? 'disable' : 'enable'
-        }
-      },
-      {
-        type: 'input',
-        dispatch_action: true,
-        element: {
-          type: 'plain_text_input',
-          action_id: 'update_emoji',
-          initial_value: emoji,
-          dispatch_action_config: { trigger_actions_on: ['on_enter_pressed', 'on_character_entered'] }
-        },
-        label: { type: 'plain_text', text: 'Status Emoji (e.g. :headphones:)' },
-        hint: { type: 'plain_text', text: 'Comma-separate multiple for random! (e.g. :notes:, :headphones:)' }
-      },
-      {
-        type: 'input',
-        dispatch_action: true,
-        element: {
-          type: 'plain_text_input',
-          action_id: 'update_format',
-          initial_value: format,
-          dispatch_action_config: { trigger_actions_on: ['on_enter_pressed', 'on_character_entered'] }
-        },
-        label: { type: 'plain_text', text: 'Status Format String' },
-        hint: { type: 'plain_text', text: 'Placeholders: {song}, {artist}, {album}' }
-      },
-      {
-        type: 'section',
-        text: { type: 'mrkdwn', text: '*Behavior*\nClear status when music pauses' },
-        accessory: {
-          type: 'checkboxes',
-          action_id: 'update_clear_on_pause',
-          options: [
-            {
-              text: { type: 'plain_text', text: 'Clear on pause' },
-              value: 'clear'
-            }
-          ],
-          initial_options: clearOnPause ? [{ text: { type: 'plain_text', text: 'Clear on pause' }, value: 'clear' }] : []
-        }
-      }
-    );
+    blocks = blocks.concat(getCustomizationBlocks(user));
   }
 
-  await client.views.publish({
-    user_id: userId,
-    view: { type: 'home', blocks }
-  });
+  await client.views.publish({ user_id: userId, view: { type: 'home', blocks } });
 }
 
 // Slack Actions
@@ -288,7 +271,7 @@ slackApp.action('toggle_sync', async ({ body, ack, client }) => {
 
   if (!isEnabled) {
     const user = db.getUser(userId);
-    if (user && user.slackToken) {
+    if (user?.slackToken) {
       try {
         await updateSlackStatus(user.slackToken, '', '');
         db.saveUser(userId, { lastTrack: null });
@@ -386,55 +369,56 @@ async function updateSlackStatus(token, text, emoji) {
   if (!response.data.ok) throw new Error(response.data.error);
 }
 
+async function processUser(userId, user) {
+  if (!user.slackToken || !user.spotifyRefreshToken || user.enabled === false) {
+    return;
+  }
+
+  try {
+    const accessToken = await fetchSpotifyToken(user.spotifyRefreshToken);
+    const track = await fetchCurrentTrack(accessToken);
+    
+    const format = user.statusFormat || defaultFormat;
+    let emoji = user.statusEmoji || defaultEmoji;
+    const clearOnPause = user.clearOnPause !== false;
+
+    // Select a random emoji if the user provided a comma-separated list
+    if (emoji.includes(',')) {
+      const emojis = emoji.split(',').map(e => e.trim()).filter(e => e.length > 0);
+      if (emojis.length > 0) {
+        emoji = emojis[Math.floor(Math.random() * emojis.length)];
+      }
+    }
+
+    if (track) {
+      let text = format
+        .replace('{song}', track.song)
+        .replace('{artist}', track.artist)
+        .replace('{album}', track.album);
+        
+      if (text.length > maxLen) {
+        text = text.substring(0, maxLen - 1) + '…';
+      }
+
+      if (text !== user.lastTrack) {
+        await updateSlackStatus(user.slackToken, text, emoji);
+        db.saveUser(userId, { lastTrack: text });
+      }
+    } else if (clearOnPause) {
+      if (user.lastTrack) {
+        await updateSlackStatus(user.slackToken, '', '');
+        db.saveUser(userId, { lastTrack: null });
+      }
+    }
+  } catch (err) {
+    console.error(`Error for user ${userId}:`, err.message);
+  }
+}
+
 async function runPoll() {
   const users = db.getAllUsers();
-  
   for (const userId of Object.keys(users)) {
-    const user = users[userId];
-    
-    if (!user.slackToken || !user.spotifyRefreshToken || user.enabled === false) {
-      continue;
-    }
-
-    try {
-      const accessToken = await fetchSpotifyToken(user.spotifyRefreshToken);
-      const track = await fetchCurrentTrack(accessToken);
-      
-      const format = user.statusFormat || defaultFormat;
-      let emoji = user.statusEmoji || defaultEmoji;
-      const clearOnPause = user.clearOnPause !== false;
-
-      // Select a random emoji if the user provided a comma-separated list
-      if (emoji.includes(',')) {
-        const emojis = emoji.split(',').map(e => e.trim()).filter(e => e.length > 0);
-        if (emojis.length > 0) {
-          emoji = emojis[Math.floor(Math.random() * emojis.length)];
-        }
-      }
-
-      if (track) {
-        let text = format
-          .replace('{song}', track.song)
-          .replace('{artist}', track.artist)
-          .replace('{album}', track.album);
-          
-        if (text.length > maxLen) {
-          text = text.substring(0, maxLen - 1) + '…';
-        }
-
-        if (text !== user.lastTrack) {
-          await updateSlackStatus(user.slackToken, text, emoji);
-          db.saveUser(userId, { lastTrack: text });
-        }
-      } else if (clearOnPause) {
-        if (user.lastTrack) {
-          await updateSlackStatus(user.slackToken, '', '');
-          db.saveUser(userId, { lastTrack: null });
-        }
-      }
-    } catch (err) {
-      console.error(`Error for user ${userId}:`, err.message);
-    }
+    await processUser(userId, users[userId]);
   }
 }
 
