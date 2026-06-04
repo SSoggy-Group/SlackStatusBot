@@ -210,7 +210,7 @@ server.get('/trakt/auth', (req, res) => {
   const slackUserId = req.query.user;
   if (!slackUserId) return res.send('Missing user ID');
   const state = encodeURIComponent(slackUserId);
-  const authUrl = `https://trakt.tv/oauth/authorize?response_type=code&client_id=${TRAKT_CLIENT_ID}&redirect_uri=${encodeURIComponent(`${PUBLIC_URL}/trakt/callback`)}&state=${state}`;
+  const authUrl = `https://trakt.tv/oauth/authorize?response_type=code&client_id=${TRAKT_CLIENT_ID}&redirect_uri=${encodeURIComponent(PUBLIC_URL + '/trakt/callback')}&state=${state}`;
   res.redirect(authUrl);
 });
 
@@ -834,7 +834,7 @@ slackApp.action('update_display_mode', async ({ body, ack, action, client }) => 
 
 slackApp.action('update_cycle_speed', async ({ body, ack, action, client }) => {
   await ack();
-  db.saveUser(body.user.id, { cycleSpeed: parseInt(action.selected_option.value), lastTrack: null });
+  db.saveUser(body.user.id, { cycleSpeed: Number.parseInt(action.selected_option.value), lastTrack: null });
   await updateHomeView(body.user.id, client);
 });
 
@@ -940,7 +940,7 @@ async function fetchLastFmTrack(username, fetchPlayCount = false, userApiKey = n
   });
 
   const track = response.data?.recenttracks?.track?.[0];
-  if (!track || !track['@attr'] || track['@attr'].nowplaying !== 'true') return null;
+  if (track?.['@attr']?.nowplaying !== 'true') return null;
 
   const result = { song: track.name, artist: track.artist['#text'], album: track.album['#text'] };
 
@@ -969,7 +969,7 @@ async function fetchSteamGame(steamId, userApiKey = null) {
   });
   
   const player = response.data?.response?.players?.[0];
-  if (!player || !player.gameextrainfo) return null;
+  if (!player?.gameextrainfo) return null;
 
   return { game: player.gameextrainfo, song: player.gameextrainfo, artist: 'Steam' };
 }
@@ -1003,7 +1003,7 @@ async function fetchWakatimeActivity(accessToken) {
   });
 
   const lastBeat = response.data;
-  if (!lastBeat || !lastBeat.time) return null;
+  if (!lastBeat?.time) return null;
 
   const diffMinutes = (Date.now() - (lastBeat.time * 1000)) / 60000;
   
@@ -1024,9 +1024,9 @@ async function fetchLichessActivity(username) {
   if (response.status !== 200 || !response.data) return null;
   const game = response.data;
   let opponent = 'Unknown';
-  if (game.players && game.players.white && game.players.white.user && game.players.white.user.name !== username) {
+  if (game?.players?.white?.user?.name && game.players.white.user.name !== username) {
     opponent = game.players.white.user.name;
-  } else if (game.players && game.players.black && game.players.black.user && game.players.black.user.name !== username) {
+  } else if (game?.players?.black?.user?.name && game.players.black.user.name !== username) {
     opponent = game.players.black.user.name;
   }
   return { opponent, gameType: game.perf || 'Chess' };
@@ -1035,7 +1035,7 @@ async function fetchLichessActivity(username) {
 async function fetchChessComActivity(username) {
   if (!username) return null;
   const response = await axios.get(`https://api.chess.com/pub/player/${username}/is-online`, { validateStatus: (status) => status < 500 });
-  if (response.status !== 200 || !response.data || !response.data.online) return null;
+  if (response.status !== 200 || !response?.data?.online) return null;
   // Chess.com doesn't easily expose current game opponent without hitting another endpoint. We'll just show online playing.
   return { gameType: 'Chess' };
 }
@@ -1043,7 +1043,7 @@ async function fetchChessComActivity(username) {
 async function fetchDuolingoActivity(username) {
   if (!username) return null;
   const response = await axios.get(`https://www.duolingo.com/2017-06-30/users?username=${username}`, { validateStatus: (status) => status < 500 });
-  if (response.status !== 200 || !response.data || !response.data.users || response.data.users.length === 0) return null;
+  if (response.status !== 200 || !response?.data?.users?.length) return null;
   
   const duoUser = response.data.users[0];
   const currentLanguage = duoUser.currentCourse ? duoUser.currentCourse.title : 'a language';
@@ -1061,7 +1061,7 @@ async function fetchPlexActivity(serverUrl, token) {
       validateStatus: (status) => status < 500
     });
 
-    if (response.status !== 200 || !response.data || !response.data.MediaContainer || !response.data.MediaContainer.Metadata) return null;
+    if (response.status !== 200 || !response?.data?.MediaContainer?.Metadata) return null;
     
     const sessions = response.data.MediaContainer.Metadata;
     if (sessions.length === 0) return null;
@@ -1095,7 +1095,7 @@ async function fetchGithubActivity(username, apiKey) {
       const recentEvent = response.data[0];
       // Only consider it "active" if it was pushed within the last 2 hours
       const eventTime = new Date(recentEvent.created_at);
-      const isRecent = (new Date() - eventTime) < (2 * 60 * 60 * 1000); 
+      const isRecent = (Date.now() - eventTime) < (2 * 60 * 60 * 1000); 
 
       if (isRecent && recentEvent.type === 'PushEvent') {
         const repoName = recentEvent.repo.name.split('/').pop();
@@ -1118,7 +1118,7 @@ async function fetchXboxPresence(xstsToken, userHash) {
       3
     );
 
-    if (response && response.state === 'Online' && response.devices && response.devices.length > 0) {
+    if (response?.state === 'Online' && response?.devices?.length > 0) {
       const activeDevice = response.devices.find(d => d.titles && d.titles.length > 0);
       if (activeDevice) {
         const title = activeDevice.titles[0];
@@ -1205,7 +1205,7 @@ async function processUser(userId, user) {
 
       if (user.displayMode === 'combined') {
         const texts = activeTracks.map(current => {
-          if (current.source === 'spotify' || current.source === 'lastfm') return `${current.track.song} - ${current.track.artist}${current.track.playcount ? ` (${current.track.playcount} plays)` : ''}`;
+          if (current.source === 'spotify' || current.source === 'lastfm') return `${current.track.song} - ${current.track.artist}` + (current.track.playcount ? ` (${current.track.playcount} plays)` : '');
           if (current.source === 'steam') return `Playing ${current.track.game}`;
           if (current.source === 'wakatime') return `Coding in ${current.track.language}`;
           if (current.source === 'trakt' || current.source === 'jellyfin') return `Watching ${current.track.show || current.track.title}`;
@@ -1242,7 +1242,7 @@ async function processUser(userId, user) {
         }
         
         if (current.source === 'spotify' || current.source === 'lastfm') {
-          text = `${current.track.song} - ${current.track.artist}${current.track.playcount ? ` (${current.track.playcount} plays)` : ''}`;
+          text = `${current.track.song} - ${current.track.artist}` + (current.track.playcount ? ` (${current.track.playcount} plays)` : '');
         } else if (current.source === 'xbox') {
           text = `Playing ${current.track.game}`;
         } else if (current.source === 'steam') {
