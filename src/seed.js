@@ -1,6 +1,6 @@
 require('dotenv').config();
 const axios = require('axios');
-const fs = require('fs');
+const fs = require('node:fs');
 
 async function setup() {
   try {
