@@ -322,6 +322,12 @@ function getCustomizationBlocks(user) {
         element: { type: 'plain_text_input', action_id: 'update_lastfm_username', initial_value: user.lastFmUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
         label: { type: 'plain_text', text: 'Last.fm Username' }
       });
+      blocks.push({
+        type: 'input', dispatch_action: true, optional: true,
+        element: { type: 'plain_text_input', action_id: 'update_lastfm_apikey', initial_value: user.lastFmApiKey || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
+        label: { type: 'plain_text', text: 'Last.fm API Key' },
+        hint: { type: 'plain_text', text: 'Optional. Leave blank to use server default.' }
+      });
       const lfmCbOpts = [{ text: { type: 'plain_text', text: 'Show Play Count' }, value: 'true' }];
       const playcountBlock = {
         type: 'actions', elements: [{ type: 'checkboxes', action_id: 'update_lastfm_playcount', options: lfmCbOpts }]
@@ -334,11 +340,23 @@ function getCustomizationBlocks(user) {
         element: { type: 'plain_text_input', action_id: 'update_steam_id', initial_value: user.steamId || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
         label: { type: 'plain_text', text: 'Steam ID (64-bit)' }
       });
+      blocks.push({
+        type: 'input', dispatch_action: true, optional: true,
+        element: { type: 'plain_text_input', action_id: 'update_steam_apikey', initial_value: user.steamApiKey || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
+        label: { type: 'plain_text', text: 'Steam API Key' },
+        hint: { type: 'plain_text', text: 'Optional. Leave blank to use server default.' }
+      });
     } else if (id === 'trakt') {
       blocks.push({
         type: 'input', dispatch_action: true, optional: true,
         element: { type: 'plain_text_input', action_id: 'update_trakt_username', initial_value: user.traktUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
         label: { type: 'plain_text', text: 'Trakt Username' }
+      });
+      blocks.push({
+        type: 'input', dispatch_action: true, optional: true,
+        element: { type: 'plain_text_input', action_id: 'update_trakt_clientid', initial_value: user.traktClientId || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
+        label: { type: 'plain_text', text: 'Trakt Client ID' },
+        hint: { type: 'plain_text', text: 'Optional. Leave blank to use server default.' }
       });
     } else if (id === 'jellyfin') {
       blocks.push({
@@ -749,10 +767,11 @@ async function fetchCurrentTrack(accessToken) {
   return { song, artist, album };
 }
 
-async function fetchLastFmTrack(username, fetchPlayCount = false) {
-  if (!LASTFM_API_KEY) return null;
+async function fetchLastFmTrack(username, fetchPlayCount = false, userApiKey = null) {
+  const apiKey = userApiKey || LASTFM_API_KEY;
+  if (!apiKey) return null;
   const response = await axios.get('http://ws.audioscrobbler.com/2.0/', {
-    params: { method: 'user.getrecenttracks', user: username, api_key: LASTFM_API_KEY, format: 'json', limit: 1 },
+    params: { method: 'user.getrecenttracks', user: username, api_key: apiKey, format: 'json', limit: 1 },
     validateStatus: (status) => status < 300
   });
 
@@ -764,7 +783,7 @@ async function fetchLastFmTrack(username, fetchPlayCount = false) {
   if (fetchPlayCount) {
     try {
       const infoRes = await axios.get('http://ws.audioscrobbler.com/2.0/', {
-        params: { method: 'track.getInfo', api_key: LASTFM_API_KEY, artist: result.artist, track: result.song, username: username, format: 'json' }
+        params: { method: 'track.getInfo', api_key: apiKey, artist: result.artist, track: result.song, username: username, format: 'json' }
       });
       if (infoRes.data?.track?.userplaycount) {
         result.playcount = infoRes.data.track.userplaycount;
@@ -777,10 +796,11 @@ async function fetchLastFmTrack(username, fetchPlayCount = false) {
   return result;
 }
 
-async function fetchSteamGame(steamId) {
-  if (!STEAM_API_KEY) return null;
+async function fetchSteamGame(steamId, userApiKey = null) {
+  const apiKey = userApiKey || STEAM_API_KEY;
+  if (!apiKey) return null;
   const response = await axios.get(`http://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/`, {
-    params: { key: STEAM_API_KEY, steamids: steamId },
+    params: { key: apiKey, steamids: steamId },
     validateStatus: (status) => status < 300
   });
   
@@ -790,10 +810,11 @@ async function fetchSteamGame(steamId) {
   return { game: player.gameextrainfo, song: player.gameextrainfo, artist: 'Steam' };
 }
 
-async function fetchTraktWatching(username) {
-  if (!TRAKT_CLIENT_ID) return null;
+async function fetchTraktWatching(username, userClientId = null) {
+  const clientId = userClientId || TRAKT_CLIENT_ID;
+  if (!clientId) return null;
   const response = await axios.get(`https://api.trakt.tv/users/${username}/watching`, {
-    headers: { 'trakt-api-version': '2', 'trakt-api-key': TRAKT_CLIENT_ID },
+    headers: { 'trakt-api-version': '2', 'trakt-api-key': clientId },
     validateStatus: (status) => status < 300
   });
 
@@ -916,9 +937,9 @@ async function processUser(userId, user) {
     
     const fetchPromises = activeSources.map(async (source) => {
       try {
-        if (source === 'lastfm' && user.lastFmUsername) return { source, track: await fetchLastFmTrack(user.lastFmUsername, user.lastFmPlayCount) };
-        if (source === 'steam' && user.steamId) return { source, track: await fetchSteamGame(user.steamId) };
-        if (source === 'trakt' && user.traktUsername) return { source, track: await fetchTraktWatching(user.traktUsername) };
+        if (source === 'lastfm' && user.lastFmUsername) return { source, track: await fetchLastFmTrack(user.lastFmUsername, user.lastFmPlayCount, user.lastFmApiKey) };
+        if (source === 'steam' && user.steamId) return { source, track: await fetchSteamGame(user.steamId, user.steamApiKey) };
+        if (source === 'trakt' && user.traktUsername) return { source, track: await fetchTraktWatching(user.traktUsername, user.traktClientId) };
         if (source === 'jellyfin' && user.jellyfinUrl && user.jellyfinApiKey && user.jellyfinUsername) return { source, track: await fetchJellyfinActivity(user.jellyfinUrl, user.jellyfinApiKey, user.jellyfinUsername) };
         if (source === 'plex' && user.plexUrl && user.plexToken) return { source, track: await fetchPlexActivity(user.plexUrl, user.plexToken) };
         if (source === 'lichess' && user.lichessUsername) return { source, track: await fetchLichessActivity(user.lichessUsername) };
