@@ -241,7 +241,12 @@ function getCustomizationBlocks(user) {
     { text: { type: 'plain_text', text: 'Last.fm' }, value: 'lastfm' },
     { text: { type: 'plain_text', text: 'Steam' }, value: 'steam' },
     { text: { type: 'plain_text', text: 'Hackatime (Coding)' }, value: 'wakatime' },
-    { text: { type: 'plain_text', text: 'Trakt' }, value: 'trakt' }
+    { text: { type: 'plain_text', text: 'Trakt' }, value: 'trakt' },
+    { text: { type: 'plain_text', text: 'Jellyfin' }, value: 'jellyfin' },
+    { text: { type: 'plain_text', text: 'Plex' }, value: 'plex' },
+    { text: { type: 'plain_text', text: 'Lichess' }, value: 'lichess' },
+    { text: { type: 'plain_text', text: 'Chess.com' }, value: 'chesscom' },
+    { text: { type: 'plain_text', text: 'Duolingo' }, value: 'duolingo' }
   ];
 
   const userSources = user.dataSources || (user.dataSource ? [user.dataSource] : ['spotify']);
@@ -364,6 +369,35 @@ function getCustomizationBlocks(user) {
         type: 'input', dispatch_action: true, optional: true,
         element: { type: 'plain_text_input', action_id: 'update_jellyfin_username', initial_value: user.jellyfinUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
         label: { type: 'plain_text', text: 'Jellyfin Username' }
+      });
+    } else if (id === 'plex') {
+      blocks.push({
+        type: 'input', dispatch_action: true, optional: true,
+        element: { type: 'plain_text_input', action_id: 'update_plex_url', initial_value: user.plexUrl || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
+        label: { type: 'plain_text', text: 'Plex Server URL' }
+      });
+      blocks.push({
+        type: 'input', dispatch_action: true, optional: true,
+        element: { type: 'plain_text_input', action_id: 'update_plex_token', initial_value: user.plexToken || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
+        label: { type: 'plain_text', text: 'Plex Token' }
+      });
+    } else if (id === 'lichess') {
+      blocks.push({
+        type: 'input', dispatch_action: true, optional: true,
+        element: { type: 'plain_text_input', action_id: 'update_lichess_username', initial_value: user.lichessUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
+        label: { type: 'plain_text', text: 'Lichess Username' }
+      });
+    } else if (id === 'chesscom') {
+      blocks.push({
+        type: 'input', dispatch_action: true, optional: true,
+        element: { type: 'plain_text_input', action_id: 'update_chesscom_username', initial_value: user.chesscomUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
+        label: { type: 'plain_text', text: 'Chess.com Username' }
+      });
+    } else if (id === 'duolingo') {
+      blocks.push({
+        type: 'input', dispatch_action: true, optional: true,
+        element: { type: 'plain_text_input', action_id: 'update_duolingo_username', initial_value: user.duolingoUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
+        label: { type: 'plain_text', text: 'Duolingo Username' }
       });
     }
 
@@ -538,6 +572,31 @@ slackApp.action('update_trakt_username', async ({ body, ack, action, client }) =
 slackApp.action('update_trakt_clientid', async ({ body, ack, action }) => {
   await ack();
   db.saveUser(body.user.id, { traktClientId: action.value?.trim() || '', lastTrack: null });
+});
+
+slackApp.action('update_plex_url', async ({ body, ack, action }) => {
+  await ack();
+  db.saveUser(body.user.id, { plexUrl: action.value?.trim() || '', lastTrack: null });
+});
+
+slackApp.action('update_plex_token', async ({ body, ack, action }) => {
+  await ack();
+  db.saveUser(body.user.id, { plexToken: action.value?.trim() || '', lastTrack: null });
+});
+
+slackApp.action('update_lichess_username', async ({ body, ack, action }) => {
+  await ack();
+  db.saveUser(body.user.id, { lichessUsername: action.value?.trim() || '', lastTrack: null });
+});
+
+slackApp.action('update_chesscom_username', async ({ body, ack, action }) => {
+  await ack();
+  db.saveUser(body.user.id, { chesscomUsername: action.value?.trim() || '', lastTrack: null });
+});
+
+slackApp.action('update_duolingo_username', async ({ body, ack, action }) => {
+  await ack();
+  db.saveUser(body.user.id, { duolingoUsername: action.value?.trim() || '', lastTrack: null });
 });
 
 slackApp.action('update_jellyfin_url', async ({ body, ack, action }) => {
@@ -785,6 +844,64 @@ async function fetchWakatimeActivity(accessToken) {
   };
 }
 
+async function fetchLichessActivity(username) {
+  if (!username) return null;
+  const response = await axios.get(`https://lichess.org/api/user/${username}/current-game`, { validateStatus: (status) => status < 500 });
+  if (response.status !== 200 || !response.data) return null;
+  const game = response.data;
+  let opponent = 'Unknown';
+  if (game.players && game.players.white && game.players.white.user && game.players.white.user.name !== username) {
+    opponent = game.players.white.user.name;
+  } else if (game.players && game.players.black && game.players.black.user && game.players.black.user.name !== username) {
+    opponent = game.players.black.user.name;
+  }
+  return { opponent, gameType: game.perf || 'Chess' };
+}
+
+async function fetchChessComActivity(username) {
+  if (!username) return null;
+  const response = await axios.get(`https://api.chess.com/pub/player/${username}/is-online`, { validateStatus: (status) => status < 500 });
+  if (response.status !== 200 || !response.data || !response.data.online) return null;
+  // Chess.com doesn't easily expose current game opponent without hitting another endpoint. We'll just show online playing.
+  return { gameType: 'Chess' };
+}
+
+async function fetchDuolingoActivity(username) {
+  if (!username) return null;
+  const response = await axios.get(`https://www.duolingo.com/2017-06-30/users?username=${username}`, { validateStatus: (status) => status < 500 });
+  if (response.status !== 200 || !response.data || !response.data.users || response.data.users.length === 0) return null;
+  
+  const duoUser = response.data.users[0];
+  const currentLanguage = duoUser.currentCourse ? duoUser.currentCourse.title : 'a language';
+  const streak = duoUser.streak || 0;
+  
+  return { currentLanguage, streak };
+}
+
+async function fetchPlexActivity(serverUrl, token) {
+  if (!serverUrl || !token) return null;
+  const normalizedUrl = serverUrl.endsWith('/') ? serverUrl.slice(0, -1) : serverUrl;
+  const response = await axios.get(`${normalizedUrl}/status/sessions`, {
+    headers: { 'Accept': 'application/json', 'X-Plex-Token': token },
+    validateStatus: (status) => status < 500
+  });
+
+  if (response.status !== 200 || !response.data || !response.data.MediaContainer || !response.data.MediaContainer.Metadata) return null;
+  
+  const sessions = response.data.MediaContainer.Metadata;
+  if (sessions.length === 0) return null;
+
+  const session = sessions[0];
+  if (session.type === 'episode') {
+    return { title: session.title, show: session.grandparentTitle, type: 'episode' };
+  } else if (session.type === 'movie') {
+    return { title: session.title, type: 'movie' };
+  } else if (session.type === 'track') {
+    return { title: session.title, artist: session.grandparentTitle, type: 'audio' };
+  }
+  return null;
+}
+
 async function updateSlackStatus(token, text, emoji) {
   const response = await axios.post(
     'https://slack.com/api/users.profile.set',
@@ -817,6 +934,10 @@ async function processUser(userId, user) {
         if (source === 'steam' && user.steamId && user.steamApiKey) return { source, track: await fetchSteamGame(user.steamId, user.steamApiKey) };
         if (source === 'trakt' && user.traktUsername && user.traktClientId) return { source, track: await fetchTraktWatching(user.traktUsername, user.traktClientId) };
         if (source === 'jellyfin' && user.jellyfinUrl && user.jellyfinApiKey && user.jellyfinUsername) return { source, track: await fetchJellyfinActivity(user.jellyfinUrl, user.jellyfinApiKey, user.jellyfinUsername) };
+        if (source === 'plex' && user.plexUrl && user.plexToken) return { source, track: await fetchPlexActivity(user.plexUrl, user.plexToken) };
+        if (source === 'lichess' && user.lichessUsername) return { source, track: await fetchLichessActivity(user.lichessUsername) };
+        if (source === 'chesscom' && user.chesscomUsername) return { source, track: await fetchChessComActivity(user.chesscomUsername) };
+        if (source === 'duolingo' && user.duolingoUsername) return { source, track: await fetchDuolingoActivity(user.duolingoUsername) };
         if (source === 'wakatime' && user.hackatimeAccessToken) return { source, track: await fetchWakatimeActivity(user.hackatimeAccessToken) };
         if (source === 'spotify' && user.spotifyRefreshToken) {
           const accessToken = await fetchSpotifyToken(user.spotifyRefreshToken);
@@ -844,6 +965,14 @@ async function processUser(userId, user) {
           if (current.source === 'steam') return `Playing ${current.track.game}`;
           if (current.source === 'wakatime') return `Coding in ${current.track.language}`;
           if (current.source === 'trakt' || current.source === 'jellyfin') return `Watching ${current.track.show || current.track.title}`;
+          if (current.source === 'plex') {
+            if (current.track.type === 'episode') return `Watching ${current.track.show} - ${current.track.title}`;
+            if (current.track.type === 'movie') return `Watching ${current.track.title}`;
+            if (current.track.type === 'audio') return `Listening to ${current.track.title} - ${current.track.artist}`;
+          }
+          if (current.source === 'lichess') return `Playing ${current.track.gameType} vs ${current.track.opponent}`;
+          if (current.source === 'chesscom') return `Playing Chess`;
+          if (current.source === 'duolingo') return `Learning ${current.track.currentLanguage} (🔥 ${current.track.streak} days)`;
           return '';
         }).filter(t => t.length > 0);
         
@@ -879,6 +1008,20 @@ async function processUser(userId, user) {
         } else if (current.source === 'trakt' || current.source === 'jellyfin') {
           text = `Watching ${current.track.show || current.track.title}`;
           if (!user[`${current.source}Emoji`]) emoji = ':tv:';
+        } else if (current.source === 'plex') {
+          if (current.track.type === 'episode') text = `Watching ${current.track.show} - ${current.track.title}`;
+          else if (current.track.type === 'movie') text = `Watching ${current.track.title}`;
+          else if (current.track.type === 'audio') text = `Listening to ${current.track.title} - ${current.track.artist}`;
+          if (!user[`plexEmoji`]) emoji = current.track.type === 'audio' ? ':headphones:' : ':tv:';
+        } else if (current.source === 'lichess') {
+          text = `Playing ${current.track.gameType} vs ${current.track.opponent}`;
+          if (!user[`lichessEmoji`]) emoji = ':chess_pawn:';
+        } else if (current.source === 'chesscom') {
+          text = `Playing Chess`;
+          if (!user[`chesscomEmoji`]) emoji = ':chess_pawn:';
+        } else if (current.source === 'duolingo') {
+          text = `Learning ${current.track.currentLanguage} (🔥 ${current.track.streak} days)`;
+          if (!user[`duolingoEmoji`]) emoji = ':owl:';
         }
 
         if (user[`${current.source}Emoji`]) emoji = user[`${current.source}Emoji`];
