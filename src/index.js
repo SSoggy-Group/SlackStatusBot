@@ -12,6 +12,8 @@ const {
   SPOTIFY_CLIENT_SECRET,
   PUBLIC_URL,
   LASTFM_API_KEY,
+  STEAM_API_KEY,
+  TRAKT_CLIENT_ID,
 } = process.env;
 
 const pollInterval = 10000;
@@ -28,6 +30,8 @@ const requiredVars = [
   ['SPOTIFY_CLIENT_ID', SPOTIFY_CLIENT_ID],
   ['SPOTIFY_CLIENT_SECRET', SPOTIFY_CLIENT_SECRET],
   ['LASTFM_API_KEY', LASTFM_API_KEY],
+  ['STEAM_API_KEY', STEAM_API_KEY],
+  ['TRAKT_CLIENT_ID', TRAKT_CLIENT_ID],
   ['PUBLIC_URL', PUBLIC_URL],
 ].filter(([, v]) => !v);
 
@@ -174,6 +178,45 @@ function getAccountBlocks(user, userId) {
       },
       label: { type: 'plain_text', text: 'Last.fm Username' },
       hint: { type: 'plain_text', text: 'No login required. Just enter your username to pull recent tracks.' }
+    },
+    {
+      type: 'input',
+      dispatch_action: true,
+      optional: true,
+      element: {
+        type: 'plain_text_input',
+        action_id: 'update_steam_id',
+        initial_value: user.steamId || '',
+        dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] }
+      },
+      label: { type: 'plain_text', text: 'Steam ID (64-bit)' },
+      hint: { type: 'plain_text', text: 'Your 17-digit Steam ID for tracking Steam games.' }
+    },
+    {
+      type: 'input',
+      dispatch_action: true,
+      optional: true,
+      element: {
+        type: 'plain_text_input',
+        action_id: 'update_trakt_username',
+        initial_value: user.traktUsername || '',
+        dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] }
+      },
+      label: { type: 'plain_text', text: 'Trakt.tv Username' },
+      hint: { type: 'plain_text', text: 'Track movies and TV shows from Trakt.' }
+    },
+    {
+      type: 'input',
+      dispatch_action: true,
+      optional: true,
+      element: {
+        type: 'plain_text_input',
+        action_id: 'update_wakatime_api_key',
+        initial_value: user.wakatimeApiKey || '',
+        dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] }
+      },
+      label: { type: 'plain_text', text: 'WakaTime Secret API Key' },
+      hint: { type: 'plain_text', text: 'Your personal WakaTime API key for tracking coding activity.' }
     }
   ];
 }
@@ -191,13 +234,16 @@ function getCustomizationBlocks(user) {
       type: 'input',
       dispatch_action: true,
       element: {
-        type: 'radio_buttons',
+        type: 'static_select',
         action_id: 'update_data_source',
         options: [
           { text: { type: 'plain_text', text: 'Spotify' }, value: 'spotify' },
-          { text: { type: 'plain_text', text: 'Last.fm' }, value: 'lastfm' }
+          { text: { type: 'plain_text', text: 'Last.fm' }, value: 'lastfm' },
+          { text: { type: 'plain_text', text: 'Steam' }, value: 'steam' },
+          { text: { type: 'plain_text', text: 'WakaTime' }, value: 'wakatime' },
+          { text: { type: 'plain_text', text: 'Trakt' }, value: 'trakt' }
         ],
-        initial_option: { text: { type: 'plain_text', text: user.dataSource === 'lastfm' ? 'Last.fm' : 'Spotify' }, value: user.dataSource === 'lastfm' ? 'lastfm' : 'spotify' }
+        initial_option: { text: { type: 'plain_text', text: user.dataSource || 'Spotify' }, value: user.dataSource || 'spotify' }
       },
       label: { type: 'plain_text', text: 'Active Data Source' }
     },
@@ -234,7 +280,7 @@ function getCustomizationBlocks(user) {
         dispatch_action_config: { trigger_actions_on: ['on_enter_pressed', 'on_character_entered'] }
       },
       label: { type: 'plain_text', text: 'Status Format String' },
-      hint: { type: 'plain_text', text: 'Placeholders: {song}, {artist}, {album}' }
+      hint: { type: 'plain_text', text: 'Placeholders: {song}/{title}/{game}/{project}, {artist}/{show}/{language}' }
     },
     {
       type: 'section',
@@ -256,7 +302,7 @@ async function updateHomeView(userId, client) {
     ...getAccountBlocks(user, userId)
   ];
 
-  if (user.slackToken && (user.spotifyRefreshToken || user.lastFmUsername)) {
+  if (user.slackToken && (user.spotifyRefreshToken || user.lastFmUsername || user.steamId || user.traktUsername || user.wakatimeApiKey)) {
     blocks = blocks.concat(getCustomizationBlocks(user));
   }
 
@@ -337,9 +383,37 @@ slackApp.action('update_lastfm_username', async ({ body, ack, action, client }) 
   await updateHomeView(body.user.id, client);
 });
 
+slackApp.action('update_steam_id', async ({ body, ack, action, client }) => {
+  await ack();
+  db.saveUser(body.user.id, { steamId: action.value.trim(), lastTrack: null });
+  await updateHomeView(body.user.id, client);
+});
+
+slackApp.action('update_trakt_username', async ({ body, ack, action, client }) => {
+  await ack();
+  db.saveUser(body.user.id, { traktUsername: action.value.trim(), lastTrack: null });
+  await updateHomeView(body.user.id, client);
+});
+
+slackApp.action('update_wakatime_api_key', async ({ body, ack, action, client }) => {
+  await ack();
+  db.saveUser(body.user.id, { wakatimeApiKey: action.value.trim(), lastTrack: null });
+  await updateHomeView(body.user.id, client);
+});
+
 slackApp.action('update_data_source', async ({ body, ack, action }) => {
   await ack();
-  db.saveUser(body.user.id, { dataSource: action.selected_option.value, lastTrack: null });
+  const val = action.selected_option.value;
+  let defaultFormat = '{song} - {artist}';
+  if (val === 'steam') defaultFormat = '{game}';
+  if (val === 'wakatime') defaultFormat = 'Coding in {language}';
+  if (val === 'trakt') defaultFormat = 'Watching {show} - {title}';
+
+  const user = db.getUser(body.user.id);
+  const updates = { dataSource: val, lastTrack: null };
+  if (!user.statusFormat) updates.statusFormat = defaultFormat; // preset a good default format
+
+  db.saveUser(body.user.id, updates);
 });
 
 
@@ -409,10 +483,63 @@ async function fetchLastFmTrack(username) {
   const isPlaying = track['@attr'] && track['@attr'].nowplaying === 'true';
   if (!isPlaying) return null;
 
-  return {
-    song: track.name,
-    artist: track.artist?.['#text'] || 'Unknown Artist',
-    album: track.album?.['#text'] || 'Unknown Album'
+  return { song: track.name, artist: track.artist?.['#text'] || 'Unknown Artist', album: track.album?.['#text'] || 'Unknown Album' };
+}
+
+async function fetchSteamGame(steamId) {
+  if (!STEAM_API_KEY) return null;
+  const response = await axios.get(`http://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/`, {
+    params: { key: STEAM_API_KEY, steamids: steamId },
+    validateStatus: (status) => status < 300
+  });
+  
+  const player = response.data?.response?.players?.[0];
+  if (!player || !player.gameextrainfo) return null;
+
+  return { game: player.gameextrainfo, song: player.gameextrainfo, artist: 'Steam' };
+}
+
+async function fetchTraktWatching(username) {
+  if (!TRAKT_CLIENT_ID) return null;
+  const response = await axios.get(`https://api.trakt.tv/users/${username}/watching`, {
+    headers: {
+      'trakt-api-version': '2',
+      'trakt-api-key': TRAKT_CLIENT_ID
+    },
+    validateStatus: (status) => status < 300
+  });
+
+  if (response.status === 204 || !response.data) return null; // 204 No Content means not watching
+  
+  const data = response.data;
+  if (data.type === 'episode') {
+    return { title: data.episode.title, show: data.show.title, song: data.episode.title, artist: data.show.title };
+  } else if (data.type === 'movie') {
+    return { title: data.movie.title, show: 'Movie', song: data.movie.title, artist: 'Movie' };
+  }
+  return null;
+}
+
+async function fetchWakatimeActivity(apiKey) {
+  const response = await axios.get(`https://wakatime.com/api/v1/users/current/heartbeats?limit=1`, {
+    headers: { Authorization: `Basic ${Buffer.from(apiKey).toString('base64')}` },
+    validateStatus: (status) => status < 300
+  });
+
+  const heartbeats = response.data?.data;
+  if (!heartbeats || heartbeats.length === 0) return null;
+
+  const lastBeat = heartbeats[0];
+  const diffMinutes = (Date.now() - (lastBeat.time * 1000)) / 60000;
+  
+  // Wakatime heartbeats are sent every 2 mins usually. If > 10 mins old, user stopped coding.
+  if (diffMinutes > 10) return null;
+
+  return { 
+    project: lastBeat.project || 'Unknown Project', 
+    language: lastBeat.language || 'Unknown Language',
+    song: lastBeat.project || 'Unknown Project',
+    artist: lastBeat.language || 'Unknown Language'
   };
 }
 
@@ -437,13 +564,19 @@ async function updateSlackStatus(token, text, emoji) {
 
 async function processUser(userId, user) {
   if (!user.slackToken || user.enabled === false) return;
-  if (!user.spotifyRefreshToken && !user.lastFmUsername) return;
+  if (!user.spotifyRefreshToken && !user.lastFmUsername && !user.steamId && !user.traktUsername && !user.wakatimeApiKey) return;
 
   try {
     let track = null;
     
     if (user.dataSource === 'lastfm' && user.lastFmUsername) {
       track = await fetchLastFmTrack(user.lastFmUsername);
+    } else if (user.dataSource === 'steam' && user.steamId) {
+      track = await fetchSteamGame(user.steamId);
+    } else if (user.dataSource === 'trakt' && user.traktUsername) {
+      track = await fetchTraktWatching(user.traktUsername);
+    } else if (user.dataSource === 'wakatime' && user.wakatimeApiKey) {
+      track = await fetchWakatimeActivity(user.wakatimeApiKey);
     } else if (user.spotifyRefreshToken) {
       const accessToken = await fetchSpotifyToken(user.spotifyRefreshToken);
       track = await fetchCurrentTrack(accessToken);
@@ -462,9 +595,14 @@ async function processUser(userId, user) {
 
     if (track) {
       let text = format
-        .replace('{song}', track.song)
-        .replace('{artist}', track.artist)
-        .replace('{album}', track.album);
+        .replace('{song}', track.song || '')
+        .replace('{artist}', track.artist || '')
+        .replace('{album}', track.album || '')
+        .replace('{game}', track.game || '')
+        .replace('{show}', track.show || '')
+        .replace('{title}', track.title || '')
+        .replace('{project}', track.project || '')
+        .replace('{language}', track.language || '');
         
       if (text.length > maxLen) {
         text = text.substring(0, maxLen - 1) + '…';
