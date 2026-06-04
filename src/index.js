@@ -14,6 +14,8 @@ const {
   LASTFM_API_KEY,
   STEAM_API_KEY,
   TRAKT_CLIENT_ID,
+  HACKATIME_CLIENT_ID,
+  HACKATIME_CLIENT_SECRET,
 } = process.env;
 
 const pollInterval = 10000;
@@ -32,6 +34,8 @@ const requiredVars = [
   ['LASTFM_API_KEY', LASTFM_API_KEY],
   ['STEAM_API_KEY', STEAM_API_KEY],
   ['TRAKT_CLIENT_ID', TRAKT_CLIENT_ID],
+  ['HACKATIME_CLIENT_ID', HACKATIME_CLIENT_ID],
+  ['HACKATIME_CLIENT_SECRET', HACKATIME_CLIENT_SECRET],
   ['PUBLIC_URL', PUBLIC_URL],
 ].filter(([, v]) => !v);
 
@@ -142,6 +146,56 @@ server.get('/spotify/callback', async (req, res) => {
   }
 });
 
+server.get('/hackatime/login', (req, res) => {
+  const { slackUserId } = req.query;
+  if (!slackUserId) return res.status(400).send('Missing userId');
+
+  const params = new URLSearchParams({
+    response_type: 'code',
+    client_id: HACKATIME_CLIENT_ID,
+    scope: 'profile read',
+    redirect_uri: `${PUBLIC_URL}/hackatime/callback`,
+    state: slackUserId,
+  });
+
+  res.redirect(`https://hackatime.hackclub.com/oauth/authorize?${params.toString()}`);
+});
+
+server.get('/hackatime/callback', async (req, res) => {
+  const code = req.query.code;
+  const userId = req.query.state;
+
+  if (!code || !userId) return res.status(400).send('Missing code or state');
+
+  try {
+    const response = await axios.post(
+      'https://hackatime.hackclub.com/oauth/token',
+      new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        client_id: HACKATIME_CLIENT_ID,
+        client_secret: HACKATIME_CLIENT_SECRET,
+        redirect_uri: `${PUBLIC_URL}/hackatime/callback`,
+      }).toString(),
+      {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+      }
+    );
+
+    db.saveUser(userId, { hackatimeAccessToken: response.data.access_token });
+
+    res.send(`
+      <html><body style="font-family:sans-serif; text-align:center; padding: 50px;">
+        <h2>Hackatime Connected!</h2>
+        <p>You can close this window.</p>
+      </body></html>
+    `);
+  } catch (err) {
+    console.error('Hackatime OAuth Error:', err.message);
+    res.status(500).send('Authentication failed');
+  }
+});
+
 
 
 function getAccountBlocks(user, userId) {
@@ -161,11 +215,20 @@ function getAccountBlocks(user, userId) {
   };
   if (!user.spotifyRefreshToken) spotifyBtn.url = `${PUBLIC_URL}/spotify/login?slackUserId=${userId}`;
 
+  const hackatimeBtn = {
+    type: 'button',
+    text: { type: 'plain_text', text: user.hackatimeAccessToken ? 'Unauthorize' : 'Connect Hackatime' },
+    style: user.hackatimeAccessToken ? 'danger' : 'primary',
+    action_id: user.hackatimeAccessToken ? 'unauth_hackatime' : 'link_hackatime'
+  };
+  if (!user.hackatimeAccessToken) hackatimeBtn.url = `${PUBLIC_URL}/hackatime/login?slackUserId=${userId}`;
+
   return [
     { type: 'divider' },
     { type: 'section', text: { type: 'mrkdwn', text: '*Accounts*' } },
     { type: 'section', text: { type: 'mrkdwn', text: user.slackToken ? '✅ *Slack*: Connected' : '❌ *Slack*: Not Connected' }, accessory: slackBtn },
-    { type: 'section', text: { type: 'mrkdwn', text: user.spotifyRefreshToken ? '✅ *Spotify*: Connected' : '❌ *Spotify*: Not Connected' }, accessory: spotifyBtn }
+    { type: 'section', text: { type: 'mrkdwn', text: user.spotifyRefreshToken ? '✅ *Spotify*: Connected' : '❌ *Spotify*: Not Connected' }, accessory: spotifyBtn },
+    { type: 'section', text: { type: 'mrkdwn', text: user.hackatimeAccessToken ? '✅ *Hackatime*: Connected' : '❌ *Hackatime*: Not Connected' }, accessory: hackatimeBtn }
   ];
 }
 
@@ -222,13 +285,6 @@ function getCustomizationBlocks(user) {
       type: 'input', dispatch_action: true, optional: true,
       element: { type: 'plain_text_input', action_id: 'update_trakt_username', initial_value: user.traktUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
       label: { type: 'plain_text', text: 'Trakt Username' }, hint: { type: 'plain_text', text: 'Press enter to save.' }
-    });
-  }
-  if (userSources.includes('wakatime')) {
-    blocks.push({
-      type: 'input', dispatch_action: true, optional: true,
-      element: { type: 'plain_text_input', action_id: 'update_wakatime_api_key', initial_value: user.wakatimeApiKey || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
-      label: { type: 'plain_text', text: 'Hackatime Secret API Key' }, hint: { type: 'plain_text', text: 'Press enter to save.' }
     });
   }
 
@@ -382,9 +438,9 @@ slackApp.action('update_trakt_username', async ({ body, ack, action, client }) =
   await updateHomeView(body.user.id, client);
 });
 
-slackApp.action('update_wakatime_api_key', async ({ body, ack, action, client }) => {
+slackApp.action('unauth_hackatime', async ({ body, ack, client }) => {
   await ack();
-  db.saveUser(body.user.id, { wakatimeApiKey: action.value.trim(), lastTrack: null });
+  db.saveUser(body.user.id, { hackatimeAccessToken: null, lastTrack: null });
   await updateHomeView(body.user.id, client);
 });
 
@@ -511,16 +567,15 @@ async function fetchTraktWatching(username) {
   return null;
 }
 
-async function fetchWakatimeActivity(apiKey) {
-  const response = await axios.get(`https://hackatime.hackclub.com/api/v1/users/current/heartbeats?limit=1`, {
-    headers: { Authorization: `Basic ${Buffer.from(apiKey).toString('base64')}` },
+async function fetchWakatimeActivity(accessToken) {
+  const response = await axios.get(`https://hackatime.hackclub.com/api/v1/authenticated/heartbeats/latest`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
     validateStatus: (status) => status < 300
   });
 
-  const heartbeats = response.data?.data;
-  if (!heartbeats || heartbeats.length === 0) return null;
+  const lastBeat = response.data;
+  if (!lastBeat || !lastBeat.time) return null;
 
-  const lastBeat = heartbeats[0];
   const diffMinutes = (Date.now() - (lastBeat.time * 1000)) / 60000;
   
   // Wakatime heartbeats are sent every 2 mins usually. If > 10 mins old, user stopped coding.
@@ -555,7 +610,7 @@ async function updateSlackStatus(token, text, emoji) {
 
 async function processUser(userId, user) {
   if (!user.slackToken || user.enabled === false) return;
-  if (!user.spotifyRefreshToken && !user.lastFmUsername && !user.steamId && !user.traktUsername && !user.wakatimeApiKey) return;
+  if (!user.spotifyRefreshToken && !user.lastFmUsername && !user.steamId && !user.traktUsername && !user.hackatimeAccessToken) return;
 
   try {
     const activeSources = user.dataSources || (user.dataSource ? [user.dataSource] : ['spotify']);
@@ -565,7 +620,7 @@ async function processUser(userId, user) {
         if (source === 'lastfm' && user.lastFmUsername) return { source, track: await fetchLastFmTrack(user.lastFmUsername) };
         if (source === 'steam' && user.steamId) return { source, track: await fetchSteamGame(user.steamId) };
         if (source === 'trakt' && user.traktUsername) return { source, track: await fetchTraktWatching(user.traktUsername) };
-        if (source === 'wakatime' && user.wakatimeApiKey) return { source, track: await fetchWakatimeActivity(user.wakatimeApiKey) };
+        if (source === 'wakatime' && user.hackatimeAccessToken) return { source, track: await fetchWakatimeActivity(user.hackatimeAccessToken) };
         if (source === 'spotify' && user.spotifyRefreshToken) {
           const accessToken = await fetchSpotifyToken(user.spotifyRefreshToken);
           return { source, track: await fetchCurrentTrack(accessToken) };

@@ -28,6 +28,7 @@ then you have to go make apps in both the slack dev dashboard and the spotify de
 - `LASTFM_API_KEY`: an api key from last.fm (optional)
 - `STEAM_API_KEY`: an api key from steam (optional)
 - `TRAKT_CLIENT_ID`: an api client ID from trakt.tv (optional)
+- `HACKATIME_CLIENT_ID` and `HACKATIME_CLIENT_SECRET`: your hackatime app credentials (optional)
 - `PUBLIC_URL`: the public url where you are hosting this (needed for the oauth callbacks)
 
 ### important dashboard settings:
