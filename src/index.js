@@ -209,9 +209,13 @@ server.get('/hackatime/callback', async (req, res) => {
 server.get('/trakt/auth', (req, res) => {
   const slackUserId = req.query.user;
   if (!slackUserId) return res.send('Missing user ID');
-  const state = encodeURIComponent(slackUserId);
-  const authUrl = `https://trakt.tv/oauth/authorize?response_type=code&client_id=${TRAKT_CLIENT_ID}&redirect_uri=${encodeURIComponent(PUBLIC_URL + '/trakt/callback')}&state=${state}`;
-  res.redirect(authUrl);
+  const params = new URLSearchParams({
+    response_type: 'code',
+    client_id: TRAKT_CLIENT_ID,
+    redirect_uri: `${PUBLIC_URL}/trakt/callback`,
+    state: slackUserId
+  });
+  res.redirect(`https://trakt.tv/oauth/authorize?${params.toString()}`);
 });
 
 server.get('/trakt/callback', async (req, res) => {
@@ -237,7 +241,7 @@ server.get('/trakt/callback', async (req, res) => {
     res.send('Trakt authenticated successfully! You can close this tab and return to Slack.');
     const client = slackApp.client;
     const user = db.getUser(slackUserId);
-    if (user && user.slackToken) await updateHomeView(slackUserId, client);
+    if (user?.slackToken) await updateHomeView(slackUserId, client);
   } catch (err) {
     console.error('Trakt auth error', err.response?.data || err.message);
     res.send('Failed to authenticate with Trakt.');
@@ -271,7 +275,7 @@ server.get('/xbox/callback', async (req, res) => {
     res.send('Xbox authenticated successfully! You can close this tab and return to Slack.');
     const client = slackApp.client;
     const user = db.getUser(slackUserId);
-    if (user && user.slackToken) await updateHomeView(slackUserId, client);
+    if (user?.slackToken) await updateHomeView(slackUserId, client);
   } catch (err) {
     console.error('Xbox auth error', err.response?.data || err.message || err);
     res.send('Failed to authenticate with Xbox.');
@@ -296,26 +300,23 @@ function getAccountBlocks(user, userId) {
     accessory: btn
   });
 
-  const blocks = [
-    { type: 'divider' },
-    { type: 'section', text: { type: 'mrkdwn', text: '*Accounts*' } },
-    getSection('Slack', user.slackToken, createAuthBtn(user.slackToken, 'Authorize Slack', 'slack', `${PUBLIC_URL}/install`)),
-    getSection('Spotify', user.spotifyRefreshToken, createAuthBtn(user.spotifyRefreshToken, 'Connect Spotify', 'spotify', `${PUBLIC_URL}/spotify/login?slackUserId=${userId}`))
+  const providers = [
+    { name: 'Slack', token: user.slackToken, authText: 'Authorize Slack', prefix: 'slack', url: `${PUBLIC_URL}/install`, active: true },
+    { name: 'Spotify', token: user.spotifyRefreshToken, authText: 'Connect Spotify', prefix: 'spotify', url: `${PUBLIC_URL}/spotify/login?slackUserId=${userId}`, active: true },
+    { name: 'Hackatime', token: user.hackatimeAccessToken, authText: 'Connect Hackatime', prefix: 'hackatime', url: `${PUBLIC_URL}/hackatime/login?slackUserId=${userId}`, active: Boolean(HACKATIME_CLIENT_ID && HACKATIME_CLIENT_SECRET) },
+    { name: 'Xbox Live', token: user.xboxXstsToken, authText: 'Link Xbox', prefix: 'xbox', url: `${PUBLIC_URL}/xbox/auth?user=${userId}`, active: Boolean(XBOX_CLIENT_ID && XBOX_CLIENT_SECRET) },
+    { name: 'Trakt', token: user.traktAccessToken, authText: 'Link Trakt', prefix: 'trakt', url: `${PUBLIC_URL}/trakt/auth?user=${userId}`, active: Boolean(TRAKT_CLIENT_ID && TRAKT_CLIENT_SECRET) }
   ];
 
-  if (HACKATIME_CLIENT_ID && HACKATIME_CLIENT_SECRET) {
-    blocks.push(getSection('Hackatime', user.hackatimeAccessToken, createAuthBtn(user.hackatimeAccessToken, 'Connect Hackatime', 'hackatime', `${PUBLIC_URL}/hackatime/login?slackUserId=${userId}`)));
-  }
+  const providerBlocks = providers
+    .filter((p) => p.active)
+    .map((p) => getSection(p.name, p.token, createAuthBtn(p.token, p.authText, p.prefix, p.url)));
 
-  if (XBOX_CLIENT_ID && XBOX_CLIENT_SECRET) {
-    blocks.push(getSection('Xbox Live', user.xboxXstsToken, createAuthBtn(user.xboxXstsToken, 'Link Xbox', 'xbox', `${PUBLIC_URL}/xbox/auth?user=${userId}`)));
-  }
-
-  if (TRAKT_CLIENT_ID && TRAKT_CLIENT_SECRET) {
-    blocks.push(getSection('Trakt', user.traktAccessToken, createAuthBtn(user.traktAccessToken, 'Link Trakt', 'trakt', `${PUBLIC_URL}/trakt/auth?user=${userId}`)));
-  }
-
-  return blocks;
+  return [
+    { type: 'divider' },
+    { type: 'section', text: { type: 'mrkdwn', text: '*Accounts*' } },
+    ...providerBlocks
+  ];
 }
 
 function getCustomizationBlocks(user) {
@@ -371,146 +372,90 @@ function getCustomizationBlocks(user) {
     { text: { type: 'plain_text', text: 'All at once (Combined)' }, value: 'combined' }
   ];
 
-  blocks.push({
-    type: 'actions',
-    elements: [
-      {
-        type: 'static_select',
-        action_id: 'update_display_mode',
-        options: displayModeOptions,
-        initial_option: displayModeOptions.find(o => o.value === displayMode),
-        placeholder: { type: 'plain_text', text: 'Display Mode' }
-      },
-      {
-        type: 'static_select',
-        action_id: 'update_cycle_speed',
-        options: cycleOptions,
-        initial_option: cycleOptions.find(o => o.value === cycleSpeed.toString()),
-        placeholder: { type: 'plain_text', text: 'Cycle Speed' }
-      }
-    ]
-  });
-
   blocks.push(
+    {
+      type: 'actions',
+      elements: [
+        {
+          type: 'static_select',
+          action_id: 'update_display_mode',
+          options: displayModeOptions,
+          initial_option: displayModeOptions.find(o => o.value === displayMode),
+          placeholder: { type: 'plain_text', text: 'Display Mode' }
+        },
+        {
+          type: 'static_select',
+          action_id: 'update_cycle_speed',
+          options: cycleOptions,
+          initial_option: cycleOptions.find(o => o.value === cycleSpeed.toString()),
+          placeholder: { type: 'plain_text', text: 'Cycle Speed' }
+        }
+      ]
+    },
     { type: 'divider' },
     {
-    type: 'input', dispatch_action: true, optional: true,
-    element: { type: 'plain_text_input', action_id: 'update_default_pfp', initial_value: user.defaultPfp || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
-    label: { type: 'plain_text', text: 'Default PFP URL' }, hint: { type: 'plain_text', text: 'Reverts to this when nothing is playing.' }
-  });
-
-  function addPlatformUI(id, label) {
-    if (!userSources.includes(id)) return;
-    blocks.push({ type: 'divider' }, { type: 'section', text: { type: 'mrkdwn', text: `*${label} Settings*` } });
-
-    if (id === 'lastfm') {
-      blocks.push({
-        type: 'input', dispatch_action: true, optional: true,
-        element: { type: 'plain_text_input', action_id: 'update_lastfm_username', initial_value: user.lastFmUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
-        label: { type: 'plain_text', text: 'Last.fm Username' }
-      },
-      {
-        type: 'input', dispatch_action: true, optional: true,
-        element: { type: 'plain_text_input', action_id: 'update_lastfm_apikey', initial_value: user.lastFmApiKey || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
-        label: { type: 'plain_text', text: 'Last.fm API Key' },
-        hint: { type: 'plain_text', text: 'Optional. Leave blank to use server default.' }
-      });
-      const lfmCbOpts = [{ text: { type: 'plain_text', text: 'Show Play Count' }, value: 'true' }];
-      const playcountBlock = {
-        type: 'actions', elements: [{ type: 'checkboxes', action_id: 'update_lastfm_playcount', options: lfmCbOpts }]
-      };
-      if (user.lastFmPlayCount) playcountBlock.elements[0].initial_options = lfmCbOpts;
-      blocks.push(playcountBlock);
-    } else if (id === 'steam') {
-      blocks.push({
-        type: 'input', dispatch_action: true, optional: true,
-        element: { type: 'plain_text_input', action_id: 'update_steam_id', initial_value: user.steamId || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
-        label: { type: 'plain_text', text: 'Steam ID (64-bit)' }
-      },
-      {
-        type: 'input', dispatch_action: true, optional: true,
-        element: { type: 'plain_text_input', action_id: 'update_steam_apikey', initial_value: user.steamApiKey || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
-        label: { type: 'plain_text', text: 'Steam API Key' },
-        hint: { type: 'plain_text', text: 'Optional. Leave blank to use server default.' }
-      });
-    } else if (id === 'github') {
-      blocks.push({
-        type: 'input', dispatch_action: true, optional: true,
-        element: { type: 'plain_text_input', action_id: 'update_github_username', initial_value: user.githubUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
-        label: { type: 'plain_text', text: 'GitHub Username' }
-      });
-
-    } else if (id === 'jellyfin') {
-      blocks.push({
-        type: 'input', dispatch_action: true, optional: true,
-        element: { type: 'plain_text_input', action_id: 'update_jellyfin_url', initial_value: user.jellyfinUrl || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
-        label: { type: 'plain_text', text: 'Jellyfin Server URL' }
-      },
-      {
-        type: 'input', dispatch_action: true, optional: true,
-        element: { type: 'plain_text_input', action_id: 'update_jellyfin_apikey', initial_value: user.jellyfinApiKey || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
-        label: { type: 'plain_text', text: 'Jellyfin API Key' }
-      },
-      {
-        type: 'input', dispatch_action: true, optional: true,
-        element: { type: 'plain_text_input', action_id: 'update_jellyfin_username', initial_value: user.jellyfinUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
-        label: { type: 'plain_text', text: 'Jellyfin Username' }
-      });
-    } else if (id === 'plex') {
-      blocks.push({
-        type: 'input', dispatch_action: true, optional: true,
-        element: { type: 'plain_text_input', action_id: 'update_plex_url', initial_value: user.plexUrl || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
-        label: { type: 'plain_text', text: 'Plex Server URL' }
-      },
-      {
-        type: 'input', dispatch_action: true, optional: true,
-        element: { type: 'plain_text_input', action_id: 'update_plex_token', initial_value: user.plexToken || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
-        label: { type: 'plain_text', text: 'Plex Token' }
-      });
-    } else if (id === 'lichess') {
-      blocks.push({
-        type: 'input', dispatch_action: true, optional: true,
-        element: { type: 'plain_text_input', action_id: 'update_lichess_username', initial_value: user.lichessUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
-        label: { type: 'plain_text', text: 'Lichess Username' }
-      });
-    } else if (id === 'chesscom') {
-      blocks.push({
-        type: 'input', dispatch_action: true, optional: true,
-        element: { type: 'plain_text_input', action_id: 'update_chesscom_username', initial_value: user.chesscomUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
-        label: { type: 'plain_text', text: 'Chess.com Username' }
-      });
-    } else if (id === 'duolingo') {
-      blocks.push({
-        type: 'input', dispatch_action: true, optional: true,
-        element: { type: 'plain_text_input', action_id: 'update_duolingo_username', initial_value: user.duolingoUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
-        label: { type: 'plain_text', text: 'Duolingo Username' }
-      });
+      type: 'input', dispatch_action: true, optional: true,
+      element: { type: 'plain_text_input', action_id: 'update_default_pfp', initial_value: user.defaultPfp || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
+      label: { type: 'plain_text', text: 'Default PFP URL' }, hint: { type: 'plain_text', text: 'Reverts to this when nothing is playing.' }
     }
+  );
 
-    blocks.push({
-      type: 'input', dispatch_action: true, optional: true,
-      element: { type: 'plain_text_input', action_id: `update_${id}_emoji`, initial_value: user[`${id}Emoji`] || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
-      label: { type: 'plain_text', text: `${label} Emoji` }, hint: { type: 'plain_text', text: 'e.g. :headphones:' }
+  const platformConfig = {
+    lastfm: () => {
+      const lfmCbOpts = [{ text: { type: 'plain_text', text: 'Show Play Count' }, value: 'true' }];
+      const playcountBlock = { type: 'actions', elements: [{ type: 'checkboxes', action_id: 'update_lastfm_playcount', options: lfmCbOpts }] };
+      if (user.lastFmPlayCount) playcountBlock.elements[0].initial_options = lfmCbOpts;
+      return [
+        { type: 'input', dispatch_action: true, optional: true, element: { type: 'plain_text_input', action_id: 'update_lastfm_username', initial_value: user.lastFmUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } }, label: { type: 'plain_text', text: 'Last.fm Username' } },
+        { type: 'input', dispatch_action: true, optional: true, element: { type: 'plain_text_input', action_id: 'update_lastfm_apikey', initial_value: user.lastFmApiKey || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } }, label: { type: 'plain_text', text: 'Last.fm API Key' }, hint: { type: 'plain_text', text: 'Optional. Leave blank to use server default.' } },
+        playcountBlock
+      ];
     },
-    {
-      type: 'input', dispatch_action: true, optional: true,
-      element: { type: 'plain_text_input', action_id: `update_${id}_pfp`, initial_value: user[`${id}Pfp`] || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
-      label: { type: 'plain_text', text: `${label} PFP URL` }
-    });
-  }
+    steam: () => [
+      { type: 'input', dispatch_action: true, optional: true, element: { type: 'plain_text_input', action_id: 'update_steam_id', initial_value: user.steamId || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } }, label: { type: 'plain_text', text: 'Steam ID (64-bit)' } },
+      { type: 'input', dispatch_action: true, optional: true, element: { type: 'plain_text_input', action_id: 'update_steam_apikey', initial_value: user.steamApiKey || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } }, label: { type: 'plain_text', text: 'Steam API Key' }, hint: { type: 'plain_text', text: 'Optional. Leave blank to use server default.' } }
+    ],
+    github: () => [{ type: 'input', dispatch_action: true, optional: true, element: { type: 'plain_text_input', action_id: 'update_github_username', initial_value: user.githubUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } }, label: { type: 'plain_text', text: 'GitHub Username' } }],
+    jellyfin: () => [
+      { type: 'input', dispatch_action: true, optional: true, element: { type: 'plain_text_input', action_id: 'update_jellyfin_url', initial_value: user.jellyfinUrl || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } }, label: { type: 'plain_text', text: 'Jellyfin Server URL' } },
+      { type: 'input', dispatch_action: true, optional: true, element: { type: 'plain_text_input', action_id: 'update_jellyfin_apikey', initial_value: user.jellyfinApiKey || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } }, label: { type: 'plain_text', text: 'Jellyfin API Key' } },
+      { type: 'input', dispatch_action: true, optional: true, element: { type: 'plain_text_input', action_id: 'update_jellyfin_username', initial_value: user.jellyfinUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } }, label: { type: 'plain_text', text: 'Jellyfin Username' } }
+    ],
+    plex: () => [
+      { type: 'input', dispatch_action: true, optional: true, element: { type: 'plain_text_input', action_id: 'update_plex_url', initial_value: user.plexUrl || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } }, label: { type: 'plain_text', text: 'Plex Server URL' } },
+      { type: 'input', dispatch_action: true, optional: true, element: { type: 'plain_text_input', action_id: 'update_plex_token', initial_value: user.plexToken || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } }, label: { type: 'plain_text', text: 'Plex Token' } }
+    ],
+    lichess: () => [{ type: 'input', dispatch_action: true, optional: true, element: { type: 'plain_text_input', action_id: 'update_lichess_username', initial_value: user.lichessUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } }, label: { type: 'plain_text', text: 'Lichess Username' } }],
+    chesscom: () => [{ type: 'input', dispatch_action: true, optional: true, element: { type: 'plain_text_input', action_id: 'update_chesscom_username', initial_value: user.chesscomUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } }, label: { type: 'plain_text', text: 'Chess.com Username' } }],
+    duolingo: () => [{ type: 'input', dispatch_action: true, optional: true, element: { type: 'plain_text_input', action_id: 'update_duolingo_username', initial_value: user.duolingoUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } }, label: { type: 'plain_text', text: 'Duolingo Username' } }]
+  };
 
-  addPlatformUI('spotify', 'Spotify');
-  addPlatformUI('lastfm', 'Last.fm');
-  addPlatformUI('steam', 'Steam');
-  addPlatformUI('xbox', 'Xbox');
-  addPlatformUI('github', 'GitHub');
-  addPlatformUI('wakatime', 'Hackatime');
-  addPlatformUI('trakt', 'Trakt');
-  addPlatformUI('jellyfin', 'Jellyfin');
-  addPlatformUI('plex', 'Plex');
-  addPlatformUI('lichess', 'Lichess');
-  addPlatformUI('chesscom', 'Chess.com');
-  addPlatformUI('duolingo', 'Duolingo');
+  const platforms = [
+    { id: 'spotify', label: 'Spotify' },
+    { id: 'lastfm', label: 'Last.fm' },
+    { id: 'steam', label: 'Steam' },
+    { id: 'xbox', label: 'Xbox' },
+    { id: 'github', label: 'GitHub' },
+    { id: 'wakatime', label: 'Hackatime' },
+    { id: 'trakt', label: 'Trakt' },
+    { id: 'jellyfin', label: 'Jellyfin' },
+    { id: 'plex', label: 'Plex' },
+    { id: 'lichess', label: 'Lichess' },
+    { id: 'chesscom', label: 'Chess.com' },
+    { id: 'duolingo', label: 'Duolingo' }
+  ];
+
+  platforms.forEach(({ id, label }) => {
+    if (!userSources.includes(id)) return;
+    const specificBlocks = platformConfig[id] ? platformConfig[id]() : [];
+    blocks.push(
+      { type: 'divider' },
+      { type: 'section', text: { type: 'mrkdwn', text: `*${label} Settings*` } },
+      ...specificBlocks,
+      { type: 'input', dispatch_action: true, optional: true, element: { type: 'plain_text_input', action_id: `update_${id}_emoji`, initial_value: user[id + 'Emoji'] || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } }, label: { type: 'plain_text', text: `${label} Emoji` }, hint: { type: 'plain_text', text: 'e.g. :headphones:' } },
+      { type: 'input', dispatch_action: true, optional: true, element: { type: 'plain_text_input', action_id: `update_${id}_pfp`, initial_value: user[id + 'Pfp'] || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } }, label: { type: 'plain_text', text: `${label} PFP URL` } }
+    );
+  });
 
   blocks.push(
     { type: 'divider' },
@@ -739,7 +684,8 @@ slackApp.action(/^update_(.*)_(emoji|pfp)$/, async ({ body, ack, action, client 
     if (!val.endsWith(':')) val = val + ':';
   }
 
-  const key = platform === 'default' ? 'defaultPfp' : `${platform}${type === 'emoji' ? 'Emoji' : 'Pfp'}`;
+  const suffix = type === 'emoji' ? 'Emoji' : 'Pfp';
+  const key = platform === 'default' ? 'defaultPfp' : `${platform}${suffix}`;
   
   db.saveUser(body.user.id, { [key]: val, lastTrack: null });
   if (client) await updateHomeView(body.user.id, client);
@@ -983,10 +929,10 @@ async function fetchLichessActivity(username) {
   if (response.status !== 200 || !response.data) return null;
   const game = response.data;
   let opponent = 'Unknown';
-  if (game?.players?.white?.user?.name && game.players.white.user.name !== username) {
-    opponent = game.players.white.user.name;
-  } else if (game?.players?.black?.user?.name && game.players.black.user.name !== username) {
-    opponent = game.players.black.user.name;
+  if (game?.players?.white?.user?.name && game?.players?.white?.user?.name !== username) {
+    opponent = game?.players?.white?.user?.name;
+  } else if (game?.players?.black?.user?.name && game?.players?.black?.user?.name !== username) {
+    opponent = game?.players?.black?.user?.name;
   }
   return { opponent, gameType: game.perf || 'Chess' };
 }
@@ -1053,7 +999,7 @@ async function fetchGithubActivity(username, apiKey) {
     if (response.data && response.data.length > 0) {
       const recentEvent = response.data[0];
       // Only consider it "active" if it was pushed within the last 2 hours
-      const eventTime = new Date(recentEvent.created_at);
+      const eventTime = Date.parse(recentEvent.created_at);
       const isRecent = (Date.now() - eventTime) < (2 * 60 * 60 * 1000); 
 
       if (isRecent && recentEvent.type === 'PushEvent') {
@@ -1078,7 +1024,7 @@ async function fetchXboxPresence(xstsToken, userHash) {
     );
 
     if (response?.state === 'Online' && response?.devices?.length > 0) {
-      const activeDevice = response.devices.find(d => d.titles && d.titles.length > 0);
+      const activeDevice = response.devices.find(d => d.titles?.length > 0);
       if (activeDevice) {
         const title = activeDevice.titles[0];
         if (title.name && title.state === 'Active') {
@@ -1112,144 +1058,169 @@ async function updateSlackStatus(token, text, emoji) {
   if (!response.data.ok) throw new Error(response.data.error);
 }
 
+const getDefaultEmoji = (source, track) => {
+  if (source === 'xbox') return ':xbox:';
+  if (source === 'steam') return ':video_game:';
+  if (source === 'wakatime') return ':computer:';
+  if (source === 'trakt' || source === 'jellyfin') return ':tv:';
+  if (source === 'plex') return track?.type === 'audio' ? ':headphones:' : ':tv:';
+  if (source === 'lichess' || source === 'chesscom') return ':chess_pawn:';
+  if (source === 'duolingo') return ':owl:';
+  return ':headphones:';
+};
+
+const formatTrackText = (current) => {
+  const { source, track } = current;
+  const handlers = {
+    spotify: () => `${track.song} - ${track.artist}` + (track.playcount ? ` (${track.playcount} plays)` : ''),
+    lastfm: () => `${track.song} - ${track.artist}` + (track.playcount ? ` (${track.playcount} plays)` : ''),
+    steam: () => `Playing ${track.game}`,
+    xbox: () => `Playing ${track.game}`,
+    wakatime: () => `Coding in ${track.language}`,
+    trakt: () => `Watching ${track.show || track.title}`,
+    jellyfin: () => `Watching ${track.show || track.title}`,
+    plex: () => {
+      if (track.type === 'episode') return `Watching ${track.show} - ${track.title}`;
+      if (track.type === 'movie') return `Watching ${track.title}`;
+      if (track.type === 'audio') return `Listening to ${track.title} - ${track.artist}`;
+      return '';
+    },
+    lichess: () => `Playing ${track.gameType} vs ${track.opponent}`,
+    chesscom: () => `Playing Chess`,
+    duolingo: () => `Learning ${track.currentLanguage} (🔥 ${track.streak} days)`
+  };
+  return handlers[source] ? handlers[source]() : '';
+};
+
+async function fetchActiveTracks(user, activeSources) {
+  const fetchPromises = activeSources.map(async (source) => {
+    try {
+      const fetchers = {
+        lastfm: () => user.lastFmUsername ? fetchLastFmTrack(user.lastFmUsername, user.lastFmPlayCount, user.lastFmApiKey) : null,
+        steam: () => user.steamId ? fetchSteamGame(user.steamId, user.steamApiKey) : null,
+        xbox: () => user.xboxXstsToken ? fetchXboxPresence(user.xboxXstsToken, user.xboxUserHash) : null,
+        github: () => user.githubUsername ? fetchGithubActivity(user.githubUsername, GITHUB_API_KEY) : null,
+        trakt: () => user.traktAccessToken ? fetchTraktWatching(user.traktAccessToken) : null,
+        jellyfin: () => (user.jellyfinUrl && user.jellyfinApiKey && user.jellyfinUsername) ? fetchJellyfinActivity(user.jellyfinUrl, user.jellyfinApiKey, user.jellyfinUsername) : null,
+        plex: () => (user.plexUrl && user.plexToken) ? fetchPlexActivity(user.plexUrl, user.plexToken) : null,
+        lichess: () => user.lichessUsername ? fetchLichessActivity(user.lichessUsername) : null,
+        chesscom: () => user.chesscomUsername ? fetchChessComActivity(user.chesscomUsername) : null,
+        duolingo: () => user.duolingoUsername ? fetchDuolingoActivity(user.duolingoUsername) : null,
+        wakatime: () => user.hackatimeAccessToken ? fetchWakatimeActivity(user.hackatimeAccessToken) : null,
+        spotify: async () => {
+          if (!user.spotifyRefreshToken) return null;
+          const accessToken = await fetchSpotifyToken(user.spotifyRefreshToken);
+          return fetchCurrentTrack(accessToken);
+        }
+      };
+      const track = fetchers[source] ? await fetchers[source]() : null;
+      if (track) return { source, track };
+    } catch (e) {
+      console.error(`Fetch error for ${source}:`, e.message);
+    }
+    return { source, track: null };
+  });
+
+  const results = await Promise.all(fetchPromises);
+  return results.filter(r => r?.track);
+}
+
+const getRandomEmoji = (emojiStr) => {
+  if (!emojiStr.includes(',')) return emojiStr;
+  const emojis = emojiStr.split(',').map(e => e.trim()).filter(e => e.length > 0);
+  return emojis.length > 0 ? emojis[Math.floor(Math.random() * emojis.length)] : emojiStr;
+};
+
+const handleCycleMode = (userId, user, activeTracks, activeSources) => {
+  let cycleIndex = user.cycleIndex || 0;
+  if (cycleIndex >= activeTracks.length) cycleIndex = 0;
+  const current = activeTracks[cycleIndex];
+  
+  const cycleSpeed = user.cycleSpeed || 10;
+  const lastCycleTime = user.lastCycleTime || 0;
+  const now = Date.now();
+  
+  if (now - lastCycleTime >= cycleSpeed * 1000) {
+    const nextCycleIndex = (cycleIndex + 1) % activeTracks.length;
+    db.saveUser(userId, { cycleIndex: nextCycleIndex, lastCycleTime: now });
+  }
+  
+  let text = formatTrackText(current);
+  const emoji = user[current.source + 'Emoji'] || getDefaultEmoji(current.source, current.track);
+  const targetPfp = user[current.source + 'Pfp'] || null;
+
+  if (activeSources.length === 1 && user.statusFormat) {
+    text = user.statusFormat
+      .replace('{song}', current.track.song || '')
+      .replace('{artist}', current.track.artist || '')
+      .replace('{album}', current.track.album || '')
+      .replace('{game}', current.track.game || '')
+      .replace('{show}', current.track.show || '')
+      .replace('{title}', current.track.title || '')
+      .replace('{project}', current.track.project || '')
+      .replace('{language}', current.track.language || '');
+  }
+
+  return { text, emoji, targetPfp };
+};
+
+async function handleActiveTracks(userId, user, activeTracks, activeSources) {
+  let text = '';
+  let emoji = user.statusEmoji || defaultEmoji;
+  let targetPfp = user.statusPfp || null;
+
+  if (user.displayMode === 'combined') {
+    text = activeTracks.map(formatTrackText).filter(t => t.length > 0).join(' | ');
+    if (activeTracks[0]) {
+      const first = activeTracks[0];
+      emoji = user[first.source + 'Emoji'] || getDefaultEmoji(first.source, first.track);
+      targetPfp = user[first.source + 'Pfp'] || null;
+    }
+  } else {
+    const cycleRes = handleCycleMode(userId, user, activeTracks, activeSources);
+    text = cycleRes.text;
+    emoji = cycleRes.emoji;
+    targetPfp = cycleRes.targetPfp;
+  }
+
+  emoji = getRandomEmoji(emoji);
+  if (text.length > maxLen) text = text.substring(0, maxLen - 1) + '…';
+
+  if (text !== user.lastTrack) {
+    await updateSlackStatus(user.slackToken, text, emoji);
+    db.saveUser(userId, { lastTrack: text });
+  }
+
+  if (targetPfp && targetPfp !== user.lastPfpUrl) {
+    await setProfilePicture(user.slackToken, targetPfp);
+    db.saveUser(userId, { lastPfpUrl: targetPfp });
+  }
+}
+
+async function handleClearOnPause(userId, user) {
+  if (user.lastTrack) {
+    await updateSlackStatus(user.slackToken, '', '');
+    db.saveUser(userId, { lastTrack: null });
+  }
+  if (user.defaultPfp && user.defaultPfp !== user.lastPfpUrl) {
+    await setProfilePicture(user.slackToken, user.defaultPfp);
+    db.saveUser(userId, { lastPfpUrl: user.defaultPfp });
+  }
+}
+
 async function processUser(userId, user) {
   if (!user.slackToken || user.enabled === false) return;
   if (!user.spotifyRefreshToken && !user.lastFmUsername && !user.steamId && !user.xboxXstsToken && !user.githubUsername && !user.traktUsername && !user.hackatimeAccessToken && !user.jellyfinUrl) return;
 
   try {
     const activeSources = user.dataSources || (user.dataSource ? [user.dataSource] : ['spotify']);
-    
-    const fetchPromises = activeSources.map(async (source) => {
-      try {
-        if (source === 'lastfm' && user.lastFmUsername) return { source, track: await fetchLastFmTrack(user.lastFmUsername, user.lastFmPlayCount, user.lastFmApiKey) };
-        if (source === 'steam' && user.steamId) return { source, track: await fetchSteamGame(user.steamId, user.steamApiKey) };
-        if (source === 'xbox' && user.xboxXstsToken) return { source, track: await fetchXboxPresence(user.xboxXstsToken, user.xboxUserHash) };
-        if (source === 'github' && user.githubUsername) return { source, track: await fetchGithubActivity(user.githubUsername, GITHUB_API_KEY) };
-        if (source === 'trakt' && user.traktAccessToken) return { source, track: await fetchTraktWatching(user.traktAccessToken) };
-        if (source === 'jellyfin' && user.jellyfinUrl && user.jellyfinApiKey && user.jellyfinUsername) return { source, track: await fetchJellyfinActivity(user.jellyfinUrl, user.jellyfinApiKey, user.jellyfinUsername) };
-        if (source === 'plex' && user.plexUrl && user.plexToken) return { source, track: await fetchPlexActivity(user.plexUrl, user.plexToken) };
-        if (source === 'lichess' && user.lichessUsername) return { source, track: await fetchLichessActivity(user.lichessUsername) };
-        if (source === 'chesscom' && user.chesscomUsername) return { source, track: await fetchChessComActivity(user.chesscomUsername) };
-        if (source === 'duolingo' && user.duolingoUsername) return { source, track: await fetchDuolingoActivity(user.duolingoUsername) };
-        if (source === 'wakatime' && user.hackatimeAccessToken) return { source, track: await fetchWakatimeActivity(user.hackatimeAccessToken) };
-        if (source === 'spotify' && user.spotifyRefreshToken) {
-          const accessToken = await fetchSpotifyToken(user.spotifyRefreshToken);
-          return { source, track: await fetchCurrentTrack(accessToken) };
-        }
-      } catch (e) {
-        console.error(`Fetch error for ${source}:`, e.message);
-      }
-      return { source, track: null };
-    });
-
-    const results = await Promise.all(fetchPromises);
-    const activeTracks = results.filter(r => r && r.track);
+    const activeTracks = await fetchActiveTracks(user, activeSources);
     const clearOnPause = user.clearOnPause !== false;
 
     if (activeTracks.length > 0) {
-      let text = '';
-      let emoji = user.statusEmoji || defaultEmoji;
-      let targetPfp = user.statusPfp || null;
-
-      const getDefaultEmoji = (source, track) => {
-        if (source === 'xbox') return ':xbox:';
-        if (source === 'steam') return ':video_game:';
-        if (source === 'wakatime') return ':computer:';
-        if (source === 'trakt' || source === 'jellyfin') return ':tv:';
-        if (source === 'plex') return track?.type === 'audio' ? ':headphones:' : ':tv:';
-        if (source === 'lichess' || source === 'chesscom') return ':chess_pawn:';
-        if (source === 'duolingo') return ':owl:';
-        return ':headphones:';
-      };
-
-      const formatTrackText = (current) => {
-        if (current.source === 'spotify' || current.source === 'lastfm') return `${current.track.song} - ${current.track.artist}` + (current.track.playcount ? ` (${current.track.playcount} plays)` : '');
-        if (current.source === 'steam' || current.source === 'xbox') return `Playing ${current.track.game}`;
-        if (current.source === 'wakatime') return `Coding in ${current.track.language}`;
-        if (current.source === 'trakt' || current.source === 'jellyfin') return `Watching ${current.track.show || current.track.title}`;
-        if (current.source === 'plex') {
-          if (current.track.type === 'episode') return `Watching ${current.track.show} - ${current.track.title}`;
-          if (current.track.type === 'movie') return `Watching ${current.track.title}`;
-          if (current.track.type === 'audio') return `Listening to ${current.track.title} - ${current.track.artist}`;
-        }
-        if (current.source === 'lichess') return `Playing ${current.track.gameType} vs ${current.track.opponent}`;
-        if (current.source === 'chesscom') return `Playing Chess`;
-        if (current.source === 'duolingo') return `Learning ${current.track.currentLanguage} (🔥 ${current.track.streak} days)`;
-        return '';
-      };
-
-      if (user.displayMode === 'combined') {
-        const texts = activeTracks.map(formatTrackText).filter(t => t.length > 0);
-        
-        text = texts.join(' | ');
-
-        if (activeTracks[0]) {
-          const first = activeTracks[0];
-          emoji = user[`${first.source}Emoji`] || getDefaultEmoji(first.source, first.track);
-          if (user[`${first.source}Pfp`]) targetPfp = user[`${first.source}Pfp`];
-        }
-      } else {
-        let cycleIndex = user.cycleIndex || 0;
-        if (cycleIndex >= activeTracks.length) cycleIndex = 0;
-        const current = activeTracks[cycleIndex];
-        
-        const cycleSpeed = user.cycleSpeed || 10;
-        const lastCycleTime = user.lastCycleTime || 0;
-        const now = Date.now();
-        
-        if (now - lastCycleTime >= cycleSpeed * 1000) {
-          const nextCycleIndex = (cycleIndex + 1) % activeTracks.length;
-          db.saveUser(userId, { cycleIndex: nextCycleIndex, lastCycleTime: now });
-        }
-        
-        text = formatTrackText(current);
-
-        emoji = user[`${current.source}Emoji`] || getDefaultEmoji(current.source, current.track);
-        if (user[`${current.source}Pfp`]) targetPfp = user[`${current.source}Pfp`];
-
-        if (activeSources.length === 1 && user.statusFormat) {
-          text = user.statusFormat
-            .replace('{song}', current.track.song || '')
-            .replace('{artist}', current.track.artist || '')
-            .replace('{album}', current.track.album || '')
-            .replace('{game}', current.track.game || '')
-            .replace('{show}', current.track.show || '')
-            .replace('{title}', current.track.title || '')
-            .replace('{project}', current.track.project || '')
-            .replace('{language}', current.track.language || '');
-        }
-      }
-
-      if (emoji.includes(',')) {
-        const emojis = emoji.split(',').map(e => e.trim()).filter(e => e.length > 0);
-        if (emojis.length > 0) {
-          emoji = emojis[Math.floor(Math.random() * emojis.length)];
-        }
-      }
-        
-      if (text.length > maxLen) {
-        text = text.substring(0, maxLen - 1) + '…';
-      }
-
-      if (text !== user.lastTrack) {
-        await updateSlackStatus(user.slackToken, text, emoji);
-        db.saveUser(userId, { lastTrack: text });
-      }
-
-      if (targetPfp && targetPfp !== user.lastPfpUrl) {
-        await setProfilePicture(user.slackToken, targetPfp);
-        db.saveUser(userId, { lastPfpUrl: targetPfp });
-      }
-
+      await handleActiveTracks(userId, user, activeTracks, activeSources);
     } else if (clearOnPause) {
-      if (user.lastTrack) {
-        await updateSlackStatus(user.slackToken, '', '');
-        db.saveUser(userId, { lastTrack: null });
-      }
-      if (user.defaultPfp && user.defaultPfp !== user.lastPfpUrl) {
-        await setProfilePicture(user.slackToken, user.defaultPfp);
-        db.saveUser(userId, { lastPfpUrl: user.defaultPfp });
-      }
+      await handleClearOnPause(userId, user);
     }
   } catch (err) {
     console.error(`Error for user ${userId}:`, err.message);
