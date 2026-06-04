@@ -245,7 +245,7 @@ server.get('/xbox/auth', (req, res) => {
   const slackUserId = req.query.user;
   if (!slackUserId) return res.send('Missing user ID');
   const state = encodeURIComponent(slackUserId);
-  const authUrl = xboxAuth.live.getAuthorizeUrl(XBOX_CLIENT_ID, 'XboxLive.signin offline_access', `${PUBLIC_URL}/xbox/callback`);
+  const authUrl = xboxAuth.live.getAuthorizeUrl(XBOX_CLIENT_ID, 'XboxLive.signin offline_access', 'code', `${PUBLIC_URL}/xbox/callback`);
   res.redirect(`${authUrl}&state=${state}`);
 });
 
