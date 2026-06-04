@@ -42,7 +42,7 @@ const slackApp = new App({
   socketMode: true
 });
 
-// Web Routes
+
 
 server.get('/install', (req, res) => {
   const params = new URLSearchParams({
@@ -137,7 +137,7 @@ server.get('/spotify/callback', async (req, res) => {
   }
 });
 
-// UI Rendering
+
 
 function getAccountBlocks(user, userId) {
   const slackBtn = {
@@ -235,7 +235,7 @@ async function updateHomeView(userId, client) {
   await client.views.publish({ user_id: userId, view: { type: 'home', blocks } });
 }
 
-// Slack Actions
+
 
 slackApp.event('app_home_opened', async ({ event, client, logger }) => {
   try {
@@ -303,7 +303,7 @@ slackApp.action('update_clear_on_pause', async ({ body, ack, action }) => {
   db.saveUser(body.user.id, { clearOnPause: isClearOnPause, lastTrack: null });
 });
 
-// Background Polling
+
 
 async function fetchSpotifyToken(refreshToken) {
   const response = await axios.post(
@@ -382,7 +382,6 @@ async function processUser(userId, user) {
     let emoji = user.statusEmoji || defaultEmoji;
     const clearOnPause = user.clearOnPause !== false;
 
-    // Select a random emoji if the user provided a comma-separated list
     if (emoji.includes(',')) {
       const emojis = emoji.split(',').map(e => e.trim()).filter(e => e.length > 0);
       if (emojis.length > 0) {
@@ -422,15 +421,9 @@ async function runPoll() {
   }
 }
 
-// Startup
-
 (async () => {
   await slackApp.start();
-  server.listen(port, () => {
-    console.log(`Server running on port ${port}`);
-  });
-  console.log(`Bolt app is running.`);
-  
+  server.listen(port, () => console.log(`listening on :${port}`));
   runPoll();
   setInterval(runPoll, pollInterval);
 })();
