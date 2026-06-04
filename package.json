@@ -13,6 +13,8 @@
   "type": "commonjs",
   "dependencies": {
     "@slack/bolt": "^4.7.3",
+    "@xboxreplay/xboxlive-api": "^3.4.3",
+    "@xboxreplay/xboxlive-auth": "^5.1.0",
     "axios": "^1.17.0",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
