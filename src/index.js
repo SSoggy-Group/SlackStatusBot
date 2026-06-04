@@ -3,8 +3,6 @@ const { App } = require('@slack/bolt');
 const axios = require('axios');
 const db = require('./db');
 const express = require('express');
-const xboxAuth = require('@xboxreplay/xboxlive-auth');
-const xboxApi = require('@xboxreplay/xboxlive-api');
 
 const {
   SLACK_APP_TOKEN,
@@ -20,8 +18,7 @@ const {
   TRAKT_CLIENT_SECRET,
   HACKATIME_CLIENT_ID,
   HACKATIME_CLIENT_SECRET,
-  XBOX_CLIENT_ID,
-  XBOX_CLIENT_SECRET,
+  XBL_API_KEY,
 } = process.env;
 
 const pollInterval = 10000;
@@ -43,8 +40,6 @@ const requiredVars = [
   ['TRAKT_CLIENT_SECRET', TRAKT_CLIENT_SECRET],
   ['HACKATIME_CLIENT_ID', HACKATIME_CLIENT_ID],
   ['HACKATIME_CLIENT_SECRET', HACKATIME_CLIENT_SECRET],
-  ['XBOX_CLIENT_ID', XBOX_CLIENT_ID],
-  ['XBOX_CLIENT_SECRET', XBOX_CLIENT_SECRET],
   ['PUBLIC_URL', PUBLIC_URL],
 ].filter(([, v]) => !v);
 
@@ -242,39 +237,6 @@ server.get('/trakt/callback', async (req, res) => {
   }
 });
 
-server.get('/xbox/auth', (req, res) => {
-  const slackUserId = req.query.user;
-  if (!slackUserId) return res.send('Missing user ID');
-  const state = encodeURIComponent(slackUserId);
-  const authUrl = xboxAuth.live.getAuthorizeUrl(XBOX_CLIENT_ID, 'XboxLive.signin offline_access', encodeURIComponent(`${PUBLIC_URL}/xbox/callback`));
-  res.redirect(`${authUrl}&state=${state}`);
-});
-
-server.get('/xbox/callback', async (req, res) => {
-  const { code, state } = req.query;
-  if (!code || !state) return res.send('Missing code or state');
-  const slackUserId = decodeURIComponent(state);
-
-  try {
-    const msAuth = await xboxAuth.live.exchangeCodeForAccessToken(code, XBOX_CLIENT_ID, 'XboxLive.signin offline_access', `${PUBLIC_URL}/xbox/callback`, XBOX_CLIENT_SECRET);
-    const userToken = await xboxAuth.xnet.exchangeRpsTicketForUserToken(msAuth.access_token, 't');
-    const xsts = await xboxAuth.xnet.exchangeTokensForXSTSToken({ userTokens: [userToken.Token] }, { XSTSRelyingParty: 'http://xboxlive.com' });
-
-    db.saveUser(slackUserId, { 
-      xboxXstsToken: xsts.Token, 
-      xboxUserHash: xsts.DisplayClaims.xui[0].uhs 
-    });
-
-    res.send('Xbox authenticated successfully! You can close this tab and return to Slack.');
-    const client = slackApp.client;
-    const user = db.getUser(slackUserId);
-    if (user && user.slackToken) await updateHomeView(slackUserId, client);
-  } catch (err) {
-    console.error('Xbox auth error', err.response?.data || err.message || err);
-    res.send('Failed to authenticate with Xbox.');
-  }
-});
-
 
 
 function getAccountBlocks(user, userId) {
@@ -322,22 +284,6 @@ function getAccountBlocks(user, userId) {
         type: 'section',
         text: { type: 'mrkdwn', text: '*Trakt* :x:\nNot authenticated' },
         accessory: { type: 'button', text: { type: 'plain_text', text: 'Link Trakt' }, action_id: 'link_trakt', url: `${PUBLIC_URL}/trakt/auth?user=${userId}`, style: 'primary' }
-      });
-    }
-  }
-
-  if (XBOX_CLIENT_ID && XBOX_CLIENT_SECRET) {
-    if (user.xboxXstsToken) {
-      blocks.push({
-        type: 'section',
-        text: { type: 'mrkdwn', text: '*Xbox Live* :white_check_mark:\nAuthenticated' },
-        accessory: { type: 'button', text: { type: 'plain_text', text: 'Unlink' }, action_id: 'unauth_xbox', style: 'danger' }
-      });
-    } else {
-      blocks.push({
-        type: 'section',
-        text: { type: 'mrkdwn', text: '*Xbox Live* :x:\nNot authenticated' },
-        accessory: { type: 'button', text: { type: 'plain_text', text: 'Link Xbox' }, action_id: 'link_xbox', url: `${PUBLIC_URL}/xbox/auth?user=${userId}`, style: 'primary' }
       });
     }
   }
@@ -459,6 +405,12 @@ function getCustomizationBlocks(user) {
         label: { type: 'plain_text', text: 'Steam API Key' },
         hint: { type: 'plain_text', text: 'Optional. Leave blank to use server default.' }
       });
+    } else if (id === 'xbox') {
+      blocks.push({
+        type: 'input', dispatch_action: true, optional: true,
+        element: { type: 'plain_text_input', action_id: 'update_xbox_gamertag', initial_value: user.xboxGamertag || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
+        label: { type: 'plain_text', text: 'Xbox Gamertag' }
+      });
     } else if (id === 'jellyfin') {
       blocks.push({
         type: 'input', dispatch_action: true, optional: true,
@@ -521,6 +473,7 @@ function getCustomizationBlocks(user) {
   addPlatformUI('spotify', 'Spotify');
   addPlatformUI('lastfm', 'Last.fm');
   addPlatformUI('steam', 'Steam');
+  addPlatformUI('xbox', 'Xbox');
   addPlatformUI('wakatime', 'Hackatime');
   addPlatformUI('trakt', 'Trakt');
   addPlatformUI('jellyfin', 'Jellyfin');
@@ -668,6 +621,12 @@ slackApp.action('update_steam_apikey', async ({ body, ack, action }) => {
   db.saveUser(body.user.id, { steamApiKey: action.value?.trim() || '', lastTrack: null });
 });
 
+slackApp.action('update_xbox_gamertag', async ({ body, ack, action, client }) => {
+  await ack();
+  db.saveUser(body.user.id, { xboxGamertag: action.value.trim(), lastTrack: null });
+  await updateHomeView(body.user.id, client);
+});
+
 slackApp.action('update_trakt_username', async ({ body, ack, action, client }) => {
   await ack();
   db.saveUser(body.user.id, { traktUsername: action.value.trim(), lastTrack: null });
@@ -755,13 +714,6 @@ slackApp.action('unauth_trakt', async ({ body, ack, client }) => {
   await updateHomeView(body.user.id, client);
 });
 
-slackApp.action('link_xbox', async ({ ack }) => { await ack(); });
-slackApp.action('unauth_xbox', async ({ body, ack, client }) => {
-  await ack();
-  db.saveUser(body.user.id, { xboxXstsToken: null, xboxUserHash: null, lastTrack: null });
-  await updateHomeView(body.user.id, client);
-});
-
 slackApp.action('update_data_source', async ({ body, ack, action, client }) => {
   await ack();
   const vals = action.selected_options.map(o => o.value);
@@ -814,17 +766,23 @@ async function setProfilePicture(token, imageUrl) {
   }
 }
 
-async function fetchXboxPresence(xstsToken, userHash) {
-  if (!xstsToken || !userHash) return null;
+async function fetchXboxPresence(gamertag, apiKey) {
+  if (!gamertag || !apiKey) return null;
   try {
-    const response = await xboxApi.call(
-      { url: 'https://userpresence.xboxlive.com/users/me', method: 'GET' },
-      { userHash, XSTSToken: xstsToken },
-      3
-    );
+    const searchRes = await axios.get(`https://xbl.io/api/v2/friends/search?gt=${encodeURIComponent(gamertag)}`, {
+      headers: { 'X-Authorization': apiKey }
+    });
+    const profile = searchRes.data.profileUsers?.[0];
+    if (!profile) return null;
+    const xuid = profile.id;
 
-    if (response && response.state === 'Online' && response.devices && response.devices.length > 0) {
-      const activeDevice = response.devices.find(d => d.titles && d.titles.length > 0);
+    const presRes = await axios.get(`https://xbl.io/api/v2/${xuid}/presence`, {
+      headers: { 'X-Authorization': apiKey }
+    });
+
+    const presence = presRes.data[0];
+    if (presence && presence.state === 'Online' && presence.devices && presence.devices.length > 0) {
+      const activeDevice = presence.devices.find(d => d.titles && d.titles.length > 0);
       if (activeDevice) {
         const title = activeDevice.titles[0];
         if (title.name && title.state === 'Active') {
@@ -834,7 +792,7 @@ async function fetchXboxPresence(xstsToken, userHash) {
     }
     return null;
   } catch (err) {
-    console.error('Xbox presence fetch error', err.message);
+    console.error('Xbox OpenXBL error', err.response?.data || err.message);
     return null;
   }
 }
@@ -1073,7 +1031,7 @@ async function updateSlackStatus(token, text, emoji) {
 
 async function processUser(userId, user) {
   if (!user.slackToken || user.enabled === false) return;
-  if (!user.spotifyRefreshToken && !user.lastFmUsername && !user.steamId && !user.traktUsername && !user.hackatimeAccessToken && !user.jellyfinUrl) return;
+  if (!user.spotifyRefreshToken && !user.lastFmUsername && !user.steamId && !user.xboxGamertag && !user.traktUsername && !user.hackatimeAccessToken && !user.jellyfinUrl) return;
 
   try {
     const activeSources = user.dataSources || (user.dataSource ? [user.dataSource] : ['spotify']);
@@ -1082,7 +1040,7 @@ async function processUser(userId, user) {
       try {
         if (source === 'lastfm' && user.lastFmUsername) return { source, track: await fetchLastFmTrack(user.lastFmUsername, user.lastFmPlayCount, user.lastFmApiKey) };
         if (source === 'steam' && user.steamId) return { source, track: await fetchSteamGame(user.steamId, user.steamApiKey) };
-        if (source === 'xbox' && user.xboxXstsToken) return { source, track: await fetchXboxPresence(user.xboxXstsToken, user.xboxUserHash) };
+        if (source === 'xbox' && user.xboxGamertag) return { source, track: await fetchXboxPresence(user.xboxGamertag, XBL_API_KEY) };
         if (source === 'trakt' && user.traktAccessToken) return { source, track: await fetchTraktWatching(user.traktAccessToken) };
         if (source === 'jellyfin' && user.jellyfinUrl && user.jellyfinApiKey && user.jellyfinUsername) return { source, track: await fetchJellyfinActivity(user.jellyfinUrl, user.jellyfinApiKey, user.jellyfinUsername) };
         if (source === 'plex' && user.plexUrl && user.plexToken) return { source, track: await fetchPlexActivity(user.plexUrl, user.plexToken) };
