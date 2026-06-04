@@ -18,6 +18,7 @@ const {
   TRAKT_CLIENT_SECRET,
   HACKATIME_CLIENT_ID,
   HACKATIME_CLIENT_SECRET,
+  GITHUB_API_KEY,
 } = process.env;
 
 const pollInterval = 10000;
@@ -300,7 +301,7 @@ function getCustomizationBlocks(user) {
     { text: { type: 'plain_text', text: 'Spotify' }, value: 'spotify' },
     { text: { type: 'plain_text', text: 'Last.fm' }, value: 'lastfm' },
     { text: { type: 'plain_text', text: 'Steam' }, value: 'steam' },
-    { text: { type: 'plain_text', text: 'Xbox Live' }, value: 'xbox' },
+    { text: { type: 'plain_text', text: 'GitHub' }, value: 'github' },
     { text: { type: 'plain_text', text: 'Hackatime (Coding)' }, value: 'wakatime' },
     { text: { type: 'plain_text', text: 'Trakt' }, value: 'trakt' },
     { text: { type: 'plain_text', text: 'Jellyfin' }, value: 'jellyfin' },
@@ -404,6 +405,12 @@ function getCustomizationBlocks(user) {
         label: { type: 'plain_text', text: 'Steam API Key' },
         hint: { type: 'plain_text', text: 'Optional. Leave blank to use server default.' }
       });
+    } else if (id === 'github') {
+      blocks.push({
+        type: 'input', dispatch_action: true, optional: true,
+        element: { type: 'plain_text_input', action_id: 'update_github_username', initial_value: user.githubUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
+        label: { type: 'plain_text', text: 'GitHub Username' }
+      });
     } else if (id === 'xbox') {
       blocks.push({
         type: 'input', dispatch_action: true, optional: true,
@@ -472,6 +479,7 @@ function getCustomizationBlocks(user) {
   addPlatformUI('spotify', 'Spotify');
   addPlatformUI('lastfm', 'Last.fm');
   addPlatformUI('steam', 'Steam');
+  addPlatformUI('github', 'GitHub');
   addPlatformUI('wakatime', 'Hackatime');
   addPlatformUI('trakt', 'Trakt');
   addPlatformUI('jellyfin', 'Jellyfin');
@@ -617,6 +625,12 @@ slackApp.action('update_steam_id', async ({ body, ack, action, client }) => {
 slackApp.action('update_steam_apikey', async ({ body, ack, action }) => {
   await ack();
   db.saveUser(body.user.id, { steamApiKey: action.value?.trim() || '', lastTrack: null });
+});
+
+slackApp.action('update_github_username', async ({ body, ack, action, client }) => {
+  await ack();
+  db.saveUser(body.user.id, { githubUsername: action.value.trim(), lastTrack: null });
+  await updateHomeView(body.user.id, client);
 });
 
 slackApp.action('update_trakt_username', async ({ body, ack, action, client }) => {
@@ -951,25 +965,58 @@ async function fetchDuolingoActivity(username) {
 async function fetchPlexActivity(serverUrl, token) {
   if (!serverUrl || !token) return null;
   const normalizedUrl = serverUrl.endsWith('/') ? serverUrl.slice(0, -1) : serverUrl;
-  const response = await axios.get(`${normalizedUrl}/status/sessions`, {
-    headers: { 'Accept': 'application/json', 'X-Plex-Token': token },
-    validateStatus: (status) => status < 500
-  });
+  try {
+    const response = await axios.get(`${normalizedUrl}/status/sessions`, {
+      headers: { 'Accept': 'application/json', 'X-Plex-Token': token },
+      validateStatus: (status) => status < 500
+    });
 
-  if (response.status !== 200 || !response.data || !response.data.MediaContainer || !response.data.MediaContainer.Metadata) return null;
-  
-  const sessions = response.data.MediaContainer.Metadata;
-  if (sessions.length === 0) return null;
+    if (response.status !== 200 || !response.data || !response.data.MediaContainer || !response.data.MediaContainer.Metadata) return null;
+    
+    const sessions = response.data.MediaContainer.Metadata;
+    if (sessions.length === 0) return null;
 
-  const session = sessions[0];
-  if (session.type === 'episode') {
-    return { title: session.title, show: session.grandparentTitle, type: 'episode' };
-  } else if (session.type === 'movie') {
-    return { title: session.title, type: 'movie' };
-  } else if (session.type === 'track') {
-    return { title: session.title, artist: session.grandparentTitle, type: 'audio' };
+    const session = sessions[0];
+    if (session.type === 'episode') {
+      return { title: session.title, show: session.grandparentTitle, type: 'episode' };
+    } else if (session.type === 'movie') {
+      return { title: session.title, type: 'movie' };
+    } else if (session.type === 'track') {
+      return { title: session.title, artist: session.grandparentTitle, type: 'audio' };
+    }
+    return null;
+  } catch (err) {
+    console.error('Plex fetch error:', err.message);
+    return null;
   }
-  return null;
+}
+
+async function fetchGithubActivity(username, apiKey) {
+  if (!username || !apiKey) return null;
+  try {
+    const response = await axios.get(`https://api.github.com/users/${encodeURIComponent(username)}/events/public`, {
+      headers: { 
+        'Authorization': `Bearer ${apiKey}`,
+        'Accept': 'application/vnd.github.v3+json'
+      }
+    });
+
+    if (response.data && response.data.length > 0) {
+      const recentEvent = response.data[0];
+      // Only consider it "active" if it was pushed within the last 2 hours
+      const eventTime = new Date(recentEvent.created_at);
+      const isRecent = (new Date() - eventTime) < (2 * 60 * 60 * 1000); 
+
+      if (isRecent && recentEvent.type === 'PushEvent') {
+        const repoName = recentEvent.repo.name.split('/').pop();
+        return { game: repoName, song: repoName, artist: 'Coding on GitHub' };
+      }
+    }
+    return null;
+  } catch (err) {
+    console.error('GitHub fetch error', err.response?.data || err.message);
+    return null;
+  }
 }
 
 async function updateSlackStatus(token, text, emoji) {
@@ -993,7 +1040,7 @@ async function updateSlackStatus(token, text, emoji) {
 
 async function processUser(userId, user) {
   if (!user.slackToken || user.enabled === false) return;
-  if (!user.spotifyRefreshToken && !user.lastFmUsername && !user.steamId && !user.traktUsername && !user.hackatimeAccessToken && !user.jellyfinUrl) return;
+  if (!user.spotifyRefreshToken && !user.lastFmUsername && !user.steamId && !user.githubUsername && !user.traktUsername && !user.hackatimeAccessToken && !user.jellyfinUrl) return;
 
   try {
     const activeSources = user.dataSources || (user.dataSource ? [user.dataSource] : ['spotify']);
@@ -1002,6 +1049,7 @@ async function processUser(userId, user) {
       try {
         if (source === 'lastfm' && user.lastFmUsername) return { source, track: await fetchLastFmTrack(user.lastFmUsername, user.lastFmPlayCount, user.lastFmApiKey) };
         if (source === 'steam' && user.steamId) return { source, track: await fetchSteamGame(user.steamId, user.steamApiKey) };
+        if (source === 'github' && user.githubUsername) return { source, track: await fetchGithubActivity(user.githubUsername, GITHUB_API_KEY) };
         if (source === 'trakt' && user.traktAccessToken) return { source, track: await fetchTraktWatching(user.traktAccessToken) };
         if (source === 'jellyfin' && user.jellyfinUrl && user.jellyfinApiKey && user.jellyfinUsername) return { source, track: await fetchJellyfinActivity(user.jellyfinUrl, user.jellyfinApiKey, user.jellyfinUsername) };
         if (source === 'plex' && user.plexUrl && user.plexToken) return { source, track: await fetchPlexActivity(user.plexUrl, user.plexToken) };
