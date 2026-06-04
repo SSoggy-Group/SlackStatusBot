@@ -241,7 +241,38 @@ server.get('/trakt/callback', async (req, res) => {
   }
 });
 
+server.get('/xbox/auth', (req, res) => {
+  const slackUserId = req.query.user;
+  if (!slackUserId) return res.send('Missing user ID');
+  const state = encodeURIComponent(slackUserId);
+  const authUrl = xboxAuth.live.getAuthorizeUrl(XBOX_CLIENT_ID, 'XboxLive.signin offline_access', encodeURIComponent(`${PUBLIC_URL}/xbox/callback`));
+  res.redirect(`${authUrl}&state=${state}`);
+});
 
+server.get('/xbox/callback', async (req, res) => {
+  const { code, state } = req.query;
+  if (!code || !state) return res.send('Missing code or state');
+  const slackUserId = decodeURIComponent(state);
+
+  try {
+    const msAuth = await xboxAuth.live.exchangeCodeForAccessToken(code, XBOX_CLIENT_ID, 'XboxLive.signin offline_access', `${PUBLIC_URL}/xbox/callback`, XBOX_CLIENT_SECRET);
+    const userToken = await xboxAuth.xnet.exchangeRpsTicketForUserToken(msAuth.access_token, 't');
+    const xsts = await xboxAuth.xnet.exchangeTokensForXSTSToken({ userTokens: [userToken.Token] }, { XSTSRelyingParty: 'http://xboxlive.com' });
+
+    db.saveUser(slackUserId, { 
+      xboxXstsToken: xsts.Token, 
+      xboxUserHash: xsts.DisplayClaims.xui[0].uhs 
+    });
+
+    res.send('Xbox authenticated successfully! You can close this tab and return to Slack.');
+    const client = slackApp.client;
+    const user = db.getUser(slackUserId);
+    if (user && user.slackToken) await updateHomeView(slackUserId, client);
+  } catch (err) {
+    console.error('Xbox auth error', err.response?.data || err.message || err);
+    res.send('Failed to authenticate with Xbox.');
+  }
+});
 
 function getAccountBlocks(user, userId) {
   const slackBtn = {
