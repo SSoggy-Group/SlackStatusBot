@@ -331,9 +331,10 @@ slackApp.action('update_clear_on_pause', async ({ body, ack, action }) => {
   db.saveUser(body.user.id, { clearOnPause: isClearOnPause, lastTrack: null });
 });
 
-slackApp.action('update_lastfm_username', async ({ body, ack, action }) => {
+slackApp.action('update_lastfm_username', async ({ body, ack, action, client }) => {
   await ack();
   db.saveUser(body.user.id, { lastFmUsername: action.value.trim(), lastTrack: null });
+  await updateHomeView(body.user.id, client);
 });
 
 slackApp.action('update_data_source', async ({ body, ack, action }) => {
