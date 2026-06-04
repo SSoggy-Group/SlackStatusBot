@@ -1165,10 +1165,20 @@ async function processUser(userId, user) {
     if (activeTracks.length > 0) {
       let text = '';
       let emoji = user.statusEmoji || defaultEmoji;
-      let targetPfp = user.defaultPfp || null;
-      const displayMode = user.displayMode || 'cycle';
+      let targetPfp = user.statusPfp || null;
 
-      if (displayMode === 'combined') {
+      const getDefaultEmoji = (source, track) => {
+        if (source === 'xbox') return ':xbox:';
+        if (source === 'steam') return ':video_game:';
+        if (source === 'wakatime') return ':computer:';
+        if (source === 'trakt' || source === 'jellyfin') return ':tv:';
+        if (source === 'plex') return track?.type === 'audio' ? ':headphones:' : ':tv:';
+        if (source === 'lichess' || source === 'chesscom') return ':chess_pawn:';
+        if (source === 'duolingo') return ':owl:';
+        return ':headphones:';
+      };
+
+      if (user.displayMode === 'combined') {
         const texts = activeTracks.map(current => {
           if (current.source === 'spotify' || current.source === 'lastfm') return `${current.track.song} - ${current.track.artist}${current.track.playcount ? ` (${current.track.playcount} plays)` : ''}`;
           if (current.source === 'steam') return `Playing ${current.track.game}`;
@@ -1189,7 +1199,7 @@ async function processUser(userId, user) {
 
         if (activeTracks[0]) {
           const first = activeTracks[0];
-          if (user[`${first.source}Emoji`]) emoji = user[`${first.source}Emoji`];
+          emoji = user[`${first.source}Emoji`] || getDefaultEmoji(first.source, first.track);
           if (user[`${first.source}Pfp`]) targetPfp = user[`${first.source}Pfp`];
         }
       } else {
@@ -1210,33 +1220,25 @@ async function processUser(userId, user) {
           text = `${current.track.song} - ${current.track.artist}${current.track.playcount ? ` (${current.track.playcount} plays)` : ''}`;
         } else if (current.source === 'xbox') {
           text = `Playing ${current.track.game}`;
-          if (!user[`xboxEmoji`]) emoji = ':xbox:';
         } else if (current.source === 'steam') {
           text = `Playing ${current.track.game}`;
-          if (!user[`steamEmoji`]) emoji = ':video_game:';
         } else if (current.source === 'wakatime') {
           text = `Coding in ${current.track.language}`;
-          if (!user[`wakatimeEmoji`]) emoji = ':computer:';
         } else if (current.source === 'trakt' || current.source === 'jellyfin') {
           text = `Watching ${current.track.show || current.track.title}`;
-          if (!user[`${current.source}Emoji`]) emoji = ':tv:';
         } else if (current.source === 'plex') {
           if (current.track.type === 'episode') text = `Watching ${current.track.show} - ${current.track.title}`;
           else if (current.track.type === 'movie') text = `Watching ${current.track.title}`;
           else if (current.track.type === 'audio') text = `Listening to ${current.track.title} - ${current.track.artist}`;
-          if (!user[`plexEmoji`]) emoji = current.track.type === 'audio' ? ':headphones:' : ':tv:';
         } else if (current.source === 'lichess') {
           text = `Playing ${current.track.gameType} vs ${current.track.opponent}`;
-          if (!user[`lichessEmoji`]) emoji = ':chess_pawn:';
         } else if (current.source === 'chesscom') {
           text = `Playing Chess`;
-          if (!user[`chesscomEmoji`]) emoji = ':chess_pawn:';
         } else if (current.source === 'duolingo') {
           text = `Learning ${current.track.currentLanguage} (🔥 ${current.track.streak} days)`;
-          if (!user[`duolingoEmoji`]) emoji = ':owl:';
         }
 
-        if (user[`${current.source}Emoji`]) emoji = user[`${current.source}Emoji`];
+        emoji = user[`${current.source}Emoji`] || getDefaultEmoji(current.source, current.track);
         if (user[`${current.source}Pfp`]) targetPfp = user[`${current.source}Pfp`];
 
         if (activeSources.length === 1 && user.statusFormat) {
