@@ -1,44 +1,40 @@
 # slack-spotify-status
 
-A Node.js application that synchronizes the currently playing Spotify track with a user's Slack custom status.
-This version uses the **Slack App Home** interface, so users can configure and enable/disable their status sync directly inside Slack!
+a simple bot i built to sync whatever i'm listening to on spotify straight to my slack status. 
 
-## Requirements
+it has a full UI in the slack App Home tab so you can actually connect your accounts, customize your emoji, and turn the sync on and off without running any commands or dealing with config files. it also supports multiple users, so if u host it once, anyone in your slack workspace can use it.
 
-- Node.js
-- Slack Application (with Socket Mode, App Home, and `users.profile:write` scope)
-- Spotify Application
+## features
+- reads your current spotify song every 10 seconds
+- updates your slack status with `{song} - {artist}` (u can customize this)
+- lets you type a comma-separated list of emojis in the settings (e.g. `:notes:, :headphones:`) and it picks a random one every song change
+- clears your status automatically if you pause your music
+- UI settings menu directly inside slack (App Home tab)
 
-## Configuration
+## how to run it
 
-Copy `.env.example` to `.env` and fill in the required variables:
-
+you'll need node.js installed. clone this repo, and then copy the env file:
 ```bash
 cp .env.example .env
 ```
 
-Variables required:
-- `SLACK_APP_TOKEN`: An App-Level token starting with `xapp-` (from Basic Information -> App-Level Tokens).
-- `SLACK_BOT_TOKEN`: A Bot User OAuth token starting with `xoxb-` (from OAuth & Permissions).
-- `SLACK_CLIENT_ID`: The client ID of your Slack application.
-- `SLACK_CLIENT_SECRET`: The client secret of your Slack application.
-- `SPOTIFY_CLIENT_ID`: The client ID of your Spotify application.
-- `SPOTIFY_CLIENT_SECRET`: The client secret of your Spotify application.
-- `PUBLIC_URL`: The public URL where this server is hosted. This is ONLY needed for the Spotify OAuth redirect.
+then you have to go make apps in both the slack dev dashboard and the spotify dev dashboard to get all these keys for your `.env` file:
+- `SLACK_APP_TOKEN`: starts with `xapp-` (from basic info -> app-level tokens)
+- `SLACK_BOT_TOKEN`: starts with `xoxb-` (from oauth & permissions)
+- `SLACK_CLIENT_ID` and `SLACK_CLIENT_SECRET`: your slack app credentials
+- `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET`: your spotify app credentials
+- `PUBLIC_URL`: the public url where you are hosting this (needed for the oauth callbacks)
 
-## Setup
+### important dashboard settings:
+1. **slack:** turn on Socket Mode. turn on App Home (specifically the Home Tab). add `${PUBLIC_URL}/slack/callback` to the redirect urls.
+2. **spotify:** add `${PUBLIC_URL}/spotify/callback` to the redirect uris.
 
-1. **Enable Socket Mode** in your Slack App settings.
-2. **Enable App Home** in your Slack App settings and ensure the "Messages Tab" is enabled if you want users to DM it, but specifically the **Home Tab** must be enabled.
-3. Configure your Spotify App's Redirect URIs to include `${PUBLIC_URL}/spotify/callback`.
-4. Configure your Slack App's Redirect URLs (in OAuth & Permissions) to include `${PUBLIC_URL}/slack/callback`.
-5. Start the server:
-
+then just install and run:
 ```bash
 npm install
 node src/index.js
 ```
+*(or use pm2 so it stays alive in the background)*
 
-## Usage
-
-Users just open the Slack application, click on your bot's name to open its App Home, and follow the setup instructions there. They can turn the sync on and off seamlessly from within Slack.
+## usage
+just click on the bot's name in slack to open its App Home tab. click the buttons to authorize your slack and spotify accounts, turn on the sync toggle, and you're good to go.
