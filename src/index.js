@@ -256,7 +256,7 @@ server.get('/xbox/callback', async (req, res) => {
 
   try {
     const msAuth = await xboxAuth.live.exchangeCodeForAccessToken(code, XBOX_CLIENT_ID, 'XboxLive.signin offline_access', `${PUBLIC_URL}/xbox/callback`, XBOX_CLIENT_SECRET);
-    const userToken = await xboxAuth.xnet.exchangeRpsTicketForUserToken(msAuth.access_token, 't');
+    const userToken = await xboxAuth.xnet.exchangeRpsTicketForUserToken(msAuth.access_token, 'd');
     const xsts = await xboxAuth.xnet.exchangeTokensForXSTSToken({ userTokens: [userToken.Token] }, { XSTSRelyingParty: 'http://xboxlive.com' });
 
     db.saveUser(slackUserId, { 
