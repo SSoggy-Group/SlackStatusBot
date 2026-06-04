@@ -472,12 +472,7 @@ function getCustomizationBlocks(user) {
         element: { type: 'plain_text_input', action_id: 'update_github_username', initial_value: user.githubUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
         label: { type: 'plain_text', text: 'GitHub Username' }
       });
-    } else if (id === 'xbox') {
-      blocks.push({
-        type: 'input', dispatch_action: true, optional: true,
-        element: { type: 'plain_text_input', action_id: 'update_xbox_gamertag', initial_value: user.xboxGamertag || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
-        label: { type: 'plain_text', text: 'Xbox Gamertag' }
-      });
+
     } else if (id === 'jellyfin') {
       blocks.push({
         type: 'input', dispatch_action: true, optional: true,
