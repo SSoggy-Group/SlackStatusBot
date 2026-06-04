@@ -256,16 +256,14 @@ function getCustomizationBlocks(user) {
     { type: 'divider' },
     { type: 'section', text: { type: 'mrkdwn', text: '*Customization*' } },
     {
-      type: 'input',
-      dispatch_action: true,
-      element: {
+      type: 'section',
+      text: { type: 'mrkdwn', text: '*Active Data Sources*\nSelect multiple to cycle or combine them!' },
+      accessory: {
         type: 'multi_static_select',
         action_id: 'update_data_source',
         options: options,
         initial_options: initialOptions.length > 0 ? initialOptions : [options[0]]
-      },
-      label: { type: 'plain_text', text: 'Active Data Sources' },
-      hint: { type: 'plain_text', text: 'Select multiple to cycle or combine them!' }
+      }
     }
   ];
 
