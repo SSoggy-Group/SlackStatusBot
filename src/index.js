@@ -9,9 +9,9 @@ const {
   SLACK_BOT_TOKEN,
   SLACK_CLIENT_ID,
   SLACK_CLIENT_SECRET,
-  SPOTIFY_CLIENT_ID,
   SPOTIFY_CLIENT_SECRET,
   PUBLIC_URL,
+  LASTFM_API_KEY,
 } = process.env;
 
 const pollInterval = 10000;
@@ -27,6 +27,7 @@ const requiredVars = [
   ['SLACK_CLIENT_SECRET', SLACK_CLIENT_SECRET],
   ['SPOTIFY_CLIENT_ID', SPOTIFY_CLIENT_ID],
   ['SPOTIFY_CLIENT_SECRET', SPOTIFY_CLIENT_SECRET],
+  ['LASTFM_API_KEY', LASTFM_API_KEY],
   ['PUBLIC_URL', PUBLIC_URL],
 ].filter(([, v]) => !v);
 
@@ -160,7 +161,20 @@ function getAccountBlocks(user, userId) {
     { type: 'divider' },
     { type: 'section', text: { type: 'mrkdwn', text: '*Accounts*' } },
     { type: 'section', text: { type: 'mrkdwn', text: user.slackToken ? '✅ *Slack*: Connected' : '❌ *Slack*: Not Connected' }, accessory: slackBtn },
-    { type: 'section', text: { type: 'mrkdwn', text: user.spotifyRefreshToken ? '✅ *Spotify*: Connected' : '❌ *Spotify*: Not Connected' }, accessory: spotifyBtn }
+    { type: 'section', text: { type: 'mrkdwn', text: user.spotifyRefreshToken ? '✅ *Spotify*: Connected' : '❌ *Spotify*: Not Connected' }, accessory: spotifyBtn },
+    {
+      type: 'input',
+      dispatch_action: true,
+      optional: true,
+      element: {
+        type: 'plain_text_input',
+        action_id: 'update_lastfm_username',
+        initial_value: user.lastFmUsername || '',
+        dispatch_action_config: { trigger_actions_on: ['on_enter_pressed', 'on_character_entered'] }
+      },
+      label: { type: 'plain_text', text: 'Last.fm Username' },
+      hint: { type: 'plain_text', text: 'No login required. Just enter your username to pull recent tracks.' }
+    }
   ];
 }
 
@@ -173,6 +187,20 @@ function getCustomizationBlocks(user) {
   return [
     { type: 'divider' },
     { type: 'section', text: { type: 'mrkdwn', text: '*Customization*' } },
+    {
+      type: 'input',
+      dispatch_action: true,
+      element: {
+        type: 'radio_buttons',
+        action_id: 'update_data_source',
+        options: [
+          { text: { type: 'plain_text', text: 'Spotify' }, value: 'spotify' },
+          { text: { type: 'plain_text', text: 'Last.fm' }, value: 'lastfm' }
+        ],
+        initial_option: { text: { type: 'plain_text', text: user.dataSource === 'lastfm' ? 'Last.fm' : 'Spotify' }, value: user.dataSource === 'lastfm' ? 'lastfm' : 'spotify' }
+      },
+      label: { type: 'plain_text', text: 'Active Data Source' }
+    },
     {
       type: 'section',
       text: { type: 'mrkdwn', text: `*Status Syncing:* ${isEnabled ? 'Active 🟢' : 'Paused 🔴'}` },
@@ -228,7 +256,7 @@ async function updateHomeView(userId, client) {
     ...getAccountBlocks(user, userId)
   ];
 
-  if (user.slackToken && user.spotifyRefreshToken) {
+  if (user.slackToken && (user.spotifyRefreshToken || user.lastFmUsername)) {
     blocks = blocks.concat(getCustomizationBlocks(user));
   }
 
@@ -303,6 +331,16 @@ slackApp.action('update_clear_on_pause', async ({ body, ack, action }) => {
   db.saveUser(body.user.id, { clearOnPause: isClearOnPause, lastTrack: null });
 });
 
+slackApp.action('update_lastfm_username', async ({ body, ack, action }) => {
+  await ack();
+  db.saveUser(body.user.id, { lastFmUsername: action.value.trim(), lastTrack: null });
+});
+
+slackApp.action('update_data_source', async ({ body, ack, action }) => {
+  await ack();
+  db.saveUser(body.user.id, { dataSource: action.selected_option.value, lastTrack: null });
+});
+
 
 
 async function fetchSpotifyToken(refreshToken) {
@@ -350,6 +388,33 @@ async function fetchCurrentTrack(accessToken) {
   return { song, artist, album };
 }
 
+async function fetchLastFmTrack(username) {
+  if (!LASTFM_API_KEY) return null;
+  const response = await axios.get('http://ws.audioscrobbler.com/2.0/', {
+    params: {
+      method: 'user.getrecenttracks',
+      user: username,
+      api_key: LASTFM_API_KEY,
+      format: 'json',
+      limit: 1
+    },
+    validateStatus: (status) => status < 300
+  });
+
+  const trackList = response.data?.recenttracks?.track;
+  if (!trackList || trackList.length === 0) return null;
+
+  const track = trackList[0];
+  const isPlaying = track['@attr'] && track['@attr'].nowplaying === 'true';
+  if (!isPlaying) return null;
+
+  return {
+    song: track.name,
+    artist: track.artist?.['#text'] || 'Unknown Artist',
+    album: track.album?.['#text'] || 'Unknown Album'
+  };
+}
+
 async function updateSlackStatus(token, text, emoji) {
   const response = await axios.post(
     'https://slack.com/api/users.profile.set',
@@ -370,13 +435,18 @@ async function updateSlackStatus(token, text, emoji) {
 }
 
 async function processUser(userId, user) {
-  if (!user.slackToken || !user.spotifyRefreshToken || user.enabled === false) {
-    return;
-  }
+  if (!user.slackToken || user.enabled === false) return;
+  if (!user.spotifyRefreshToken && !user.lastFmUsername) return;
 
   try {
-    const accessToken = await fetchSpotifyToken(user.spotifyRefreshToken);
-    const track = await fetchCurrentTrack(accessToken);
+    let track = null;
+    
+    if (user.dataSource === 'lastfm' && user.lastFmUsername) {
+      track = await fetchLastFmTrack(user.lastFmUsername);
+    } else if (user.spotifyRefreshToken) {
+      const accessToken = await fetchSpotifyToken(user.spotifyRefreshToken);
+      track = await fetchCurrentTrack(accessToken);
+    }
     
     const format = user.statusFormat || defaultFormat;
     let emoji = user.statusEmoji || defaultEmoji;
