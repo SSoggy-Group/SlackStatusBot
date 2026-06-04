@@ -1208,6 +1208,9 @@ async function processUser(userId, user) {
         
         if (current.source === 'spotify' || current.source === 'lastfm') {
           text = `${current.track.song} - ${current.track.artist}${current.track.playcount ? ` (${current.track.playcount} plays)` : ''}`;
+        } else if (current.source === 'xbox') {
+          text = `Playing ${current.track.game}`;
+          if (!user[`xboxEmoji`]) emoji = ':xbox:';
         } else if (current.source === 'steam') {
           text = `Playing ${current.track.game}`;
           if (!user[`steamEmoji`]) emoji = ':video_game:';
