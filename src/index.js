@@ -165,59 +165,7 @@ function getAccountBlocks(user, userId) {
     { type: 'divider' },
     { type: 'section', text: { type: 'mrkdwn', text: '*Accounts*' } },
     { type: 'section', text: { type: 'mrkdwn', text: user.slackToken ? '✅ *Slack*: Connected' : '❌ *Slack*: Not Connected' }, accessory: slackBtn },
-    { type: 'section', text: { type: 'mrkdwn', text: user.spotifyRefreshToken ? '✅ *Spotify*: Connected' : '❌ *Spotify*: Not Connected' }, accessory: spotifyBtn },
-    {
-      type: 'input',
-      dispatch_action: true,
-      optional: true,
-      element: {
-        type: 'plain_text_input',
-        action_id: 'update_lastfm_username',
-        initial_value: user.lastFmUsername || '',
-        dispatch_action_config: { trigger_actions_on: ['on_enter_pressed', 'on_character_entered'] }
-      },
-      label: { type: 'plain_text', text: 'Last.fm Username' },
-      hint: { type: 'plain_text', text: 'No login required. Just enter your username to pull recent tracks.' }
-    },
-    {
-      type: 'input',
-      dispatch_action: true,
-      optional: true,
-      element: {
-        type: 'plain_text_input',
-        action_id: 'update_steam_id',
-        initial_value: user.steamId || '',
-        dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] }
-      },
-      label: { type: 'plain_text', text: 'Steam ID (64-bit)' },
-      hint: { type: 'plain_text', text: 'Your 17-digit Steam ID for tracking Steam games.' }
-    },
-    {
-      type: 'input',
-      dispatch_action: true,
-      optional: true,
-      element: {
-        type: 'plain_text_input',
-        action_id: 'update_trakt_username',
-        initial_value: user.traktUsername || '',
-        dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] }
-      },
-      label: { type: 'plain_text', text: 'Trakt.tv Username' },
-      hint: { type: 'plain_text', text: 'Track movies and TV shows from Trakt.' }
-    },
-    {
-      type: 'input',
-      dispatch_action: true,
-      optional: true,
-      element: {
-        type: 'plain_text_input',
-        action_id: 'update_wakatime_api_key',
-        initial_value: user.wakatimeApiKey || '',
-        dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] }
-      },
-      label: { type: 'plain_text', text: 'WakaTime Secret API Key' },
-      hint: { type: 'plain_text', text: 'Your personal WakaTime API key for tracking coding activity.' }
-    }
+    { type: 'section', text: { type: 'mrkdwn', text: user.spotifyRefreshToken ? '✅ *Spotify*: Connected' : '❌ *Spotify*: Not Connected' }, accessory: spotifyBtn }
   ];
 }
 
@@ -246,7 +194,36 @@ function getCustomizationBlocks(user) {
         initial_option: { text: { type: 'plain_text', text: user.dataSource || 'Spotify' }, value: user.dataSource || 'spotify' }
       },
       label: { type: 'plain_text', text: 'Active Data Source' }
-    },
+    }
+  ];
+
+  if (user.dataSource === 'lastfm') {
+    blocks.push({
+      type: 'input', dispatch_action: true, optional: true,
+      element: { type: 'plain_text_input', action_id: 'update_lastfm_username', initial_value: user.lastFmUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
+      label: { type: 'plain_text', text: 'Last.fm Username' }, hint: { type: 'plain_text', text: 'Press enter to save.' }
+    });
+  } else if (user.dataSource === 'steam') {
+    blocks.push({
+      type: 'input', dispatch_action: true, optional: true,
+      element: { type: 'plain_text_input', action_id: 'update_steam_id', initial_value: user.steamId || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
+      label: { type: 'plain_text', text: 'Steam ID (64-bit)' }, hint: { type: 'plain_text', text: 'Press enter to save.' }
+    });
+  } else if (user.dataSource === 'trakt') {
+    blocks.push({
+      type: 'input', dispatch_action: true, optional: true,
+      element: { type: 'plain_text_input', action_id: 'update_trakt_username', initial_value: user.traktUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
+      label: { type: 'plain_text', text: 'Trakt Username' }, hint: { type: 'plain_text', text: 'Press enter to save.' }
+    });
+  } else if (user.dataSource === 'wakatime') {
+    blocks.push({
+      type: 'input', dispatch_action: true, optional: true,
+      element: { type: 'plain_text_input', action_id: 'update_wakatime_api_key', initial_value: user.wakatimeApiKey || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
+      label: { type: 'plain_text', text: 'WakaTime Secret API Key' }, hint: { type: 'plain_text', text: 'Press enter to save.' }
+    });
+  }
+
+  blocks.push(
     {
       type: 'section',
       text: { type: 'mrkdwn', text: `*Status Syncing:* ${isEnabled ? 'Active 🟢' : 'Paused 🔴'}` },
@@ -292,17 +269,18 @@ function getCustomizationBlocks(user) {
         initial_options: clearOnPause ? [{ text: { type: 'plain_text', text: 'Clear on pause' }, value: 'clear' }] : []
       }
     }
-  ];
+  );
+  return blocks;
 }
 
 async function updateHomeView(userId, client) {
   const user = db.getUser(userId) || {};
   let blocks = [
-    { type: 'header', text: { type: 'plain_text', text: 'Settings' } },
+    { type: 'header', text: { type: 'plain_text', text: '🎧 Slack Status Sync' } },
     ...getAccountBlocks(user, userId)
   ];
 
-  if (user.slackToken && (user.spotifyRefreshToken || user.lastFmUsername || user.steamId || user.traktUsername || user.wakatimeApiKey)) {
+  if (user.slackToken) {
     blocks = blocks.concat(getCustomizationBlocks(user));
   }
 
@@ -401,7 +379,7 @@ slackApp.action('update_wakatime_api_key', async ({ body, ack, action, client })
   await updateHomeView(body.user.id, client);
 });
 
-slackApp.action('update_data_source', async ({ body, ack, action }) => {
+slackApp.action('update_data_source', async ({ body, ack, action, client }) => {
   await ack();
   const val = action.selected_option.value;
   let defaultFormat = '{song} - {artist}';
@@ -414,6 +392,7 @@ slackApp.action('update_data_source', async ({ body, ack, action }) => {
   if (!user.statusFormat) updates.statusFormat = defaultFormat; // preset a good default format
 
   db.saveUser(body.user.id, updates);
+  await updateHomeView(body.user.id, client);
 });
 
 
