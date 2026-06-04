@@ -15,6 +15,7 @@ const {
   LASTFM_API_KEY,
   STEAM_API_KEY,
   TRAKT_CLIENT_ID,
+  TRAKT_CLIENT_SECRET,
   HACKATIME_CLIENT_ID,
   HACKATIME_CLIENT_SECRET,
 } = process.env;
@@ -35,6 +36,7 @@ const requiredVars = [
   ['LASTFM_API_KEY', LASTFM_API_KEY],
   ['STEAM_API_KEY', STEAM_API_KEY],
   ['TRAKT_CLIENT_ID', TRAKT_CLIENT_ID],
+  ['TRAKT_CLIENT_SECRET', TRAKT_CLIENT_SECRET],
   ['HACKATIME_CLIENT_ID', HACKATIME_CLIENT_ID],
   ['HACKATIME_CLIENT_SECRET', HACKATIME_CLIENT_SECRET],
   ['PUBLIC_URL', PUBLIC_URL],
@@ -197,6 +199,43 @@ server.get('/hackatime/callback', async (req, res) => {
   }
 });
 
+server.get('/trakt/auth', (req, res) => {
+  const slackUserId = req.query.user;
+  if (!slackUserId) return res.send('Missing user ID');
+  const state = encodeURIComponent(slackUserId);
+  const authUrl = `https://trakt.tv/oauth/authorize?response_type=code&client_id=${TRAKT_CLIENT_ID}&redirect_uri=${encodeURIComponent(`${PUBLIC_URL}/trakt/callback`)}&state=${state}`;
+  res.redirect(authUrl);
+});
+
+server.get('/trakt/callback', async (req, res) => {
+  const { code, state } = req.query;
+  if (!code || !state) return res.send('Missing code or state');
+  const slackUserId = decodeURIComponent(state);
+
+  try {
+    const response = await axios.post('https://api.trakt.tv/oauth/token', {
+      code,
+      client_id: TRAKT_CLIENT_ID,
+      client_secret: TRAKT_CLIENT_SECRET,
+      redirect_uri: `${PUBLIC_URL}/trakt/callback`,
+      grant_type: 'authorization_code'
+    });
+
+    db.saveUser(slackUserId, { 
+      traktAccessToken: response.data.access_token,
+      traktRefreshToken: response.data.refresh_token
+    });
+
+    res.send('Trakt authenticated successfully! You can close this tab and return to Slack.');
+    const client = slackApp.client;
+    const user = db.getUser(slackUserId);
+    if (user && user.slackToken) await updateHomeView(slackUserId, client);
+  } catch (err) {
+    console.error('Trakt auth error', err.response?.data || err.message);
+    res.send('Failed to authenticate with Trakt.');
+  }
+});
+
 
 
 function getAccountBlocks(user, userId) {
@@ -344,18 +383,6 @@ function getCustomizationBlocks(user) {
         type: 'input', dispatch_action: true, optional: true,
         element: { type: 'plain_text_input', action_id: 'update_steam_apikey', initial_value: user.steamApiKey || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
         label: { type: 'plain_text', text: 'Steam API Key' },
-        hint: { type: 'plain_text', text: 'Optional. Leave blank to use server default.' }
-      });
-    } else if (id === 'trakt') {
-      blocks.push({
-        type: 'input', dispatch_action: true, optional: true,
-        element: { type: 'plain_text_input', action_id: 'update_trakt_username', initial_value: user.traktUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
-        label: { type: 'plain_text', text: 'Trakt Username' }
-      });
-      blocks.push({
-        type: 'input', dispatch_action: true, optional: true,
-        element: { type: 'plain_text_input', action_id: 'update_trakt_clientid', initial_value: user.traktClientId || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
-        label: { type: 'plain_text', text: 'Trakt Client ID' },
         hint: { type: 'plain_text', text: 'Optional. Leave blank to use server default.' }
       });
     } else if (id === 'jellyfin') {
@@ -647,6 +674,13 @@ slackApp.action('unauth_hackatime', async ({ body, ack, client }) => {
   await updateHomeView(body.user.id, client);
 });
 
+slackApp.action('link_trakt', async ({ ack }) => { await ack(); });
+slackApp.action('unauth_trakt', async ({ body, ack, client }) => {
+  await ack();
+  db.saveUser(body.user.id, { traktAccessToken: null, traktRefreshToken: null, lastTrack: null });
+  await updateHomeView(body.user.id, client);
+});
+
 slackApp.action('update_data_source', async ({ body, ack, action, client }) => {
   await ack();
   const vals = action.selected_options.map(o => o.value);
@@ -810,11 +844,14 @@ async function fetchSteamGame(steamId, userApiKey = null) {
   return { game: player.gameextrainfo, song: player.gameextrainfo, artist: 'Steam' };
 }
 
-async function fetchTraktWatching(username, userClientId = null) {
-  const clientId = userClientId || TRAKT_CLIENT_ID;
-  if (!clientId) return null;
-  const response = await axios.get(`https://api.trakt.tv/users/${username}/watching`, {
-    headers: { 'trakt-api-version': '2', 'trakt-api-key': clientId },
+async function fetchTraktWatching(accessToken) {
+  if (!accessToken) return null;
+  const response = await axios.get(`https://api.trakt.tv/users/me/watching`, {
+    headers: { 
+      'trakt-api-version': '2', 
+      'trakt-api-key': TRAKT_CLIENT_ID,
+      'Authorization': `Bearer ${accessToken}`
+    },
     validateStatus: (status) => status < 300
   });
 
@@ -939,7 +976,7 @@ async function processUser(userId, user) {
       try {
         if (source === 'lastfm' && user.lastFmUsername) return { source, track: await fetchLastFmTrack(user.lastFmUsername, user.lastFmPlayCount, user.lastFmApiKey) };
         if (source === 'steam' && user.steamId) return { source, track: await fetchSteamGame(user.steamId, user.steamApiKey) };
-        if (source === 'trakt' && user.traktUsername) return { source, track: await fetchTraktWatching(user.traktUsername, user.traktClientId) };
+        if (source === 'trakt' && user.traktAccessToken) return { source, track: await fetchTraktWatching(user.traktAccessToken) };
         if (source === 'jellyfin' && user.jellyfinUrl && user.jellyfinApiKey && user.jellyfinUsername) return { source, track: await fetchJellyfinActivity(user.jellyfinUrl, user.jellyfinApiKey, user.jellyfinUsername) };
         if (source === 'plex' && user.plexUrl && user.plexToken) return { source, track: await fetchPlexActivity(user.plexUrl, user.plexToken) };
         if (source === 'lichess' && user.lichessUsername) return { source, track: await fetchLichessActivity(user.lichessUsername) };
