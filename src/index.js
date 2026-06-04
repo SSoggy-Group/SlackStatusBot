@@ -18,7 +18,6 @@ const {
   TRAKT_CLIENT_SECRET,
   HACKATIME_CLIENT_ID,
   HACKATIME_CLIENT_SECRET,
-  XBL_API_KEY,
 } = process.env;
 
 const pollInterval = 10000;
@@ -473,7 +472,6 @@ function getCustomizationBlocks(user) {
   addPlatformUI('spotify', 'Spotify');
   addPlatformUI('lastfm', 'Last.fm');
   addPlatformUI('steam', 'Steam');
-  addPlatformUI('xbox', 'Xbox');
   addPlatformUI('wakatime', 'Hackatime');
   addPlatformUI('trakt', 'Trakt');
   addPlatformUI('jellyfin', 'Jellyfin');
@@ -621,12 +619,6 @@ slackApp.action('update_steam_apikey', async ({ body, ack, action }) => {
   db.saveUser(body.user.id, { steamApiKey: action.value?.trim() || '', lastTrack: null });
 });
 
-slackApp.action('update_xbox_gamertag', async ({ body, ack, action, client }) => {
-  await ack();
-  db.saveUser(body.user.id, { xboxGamertag: action.value.trim(), lastTrack: null });
-  await updateHomeView(body.user.id, client);
-});
-
 slackApp.action('update_trakt_username', async ({ body, ack, action, client }) => {
   await ack();
   db.saveUser(body.user.id, { traktUsername: action.value.trim(), lastTrack: null });
@@ -766,36 +758,6 @@ async function setProfilePicture(token, imageUrl) {
   }
 }
 
-async function fetchXboxPresence(gamertag, apiKey) {
-  if (!gamertag || !apiKey) return null;
-  try {
-    const searchRes = await axios.get(`https://xbl.io/api/v2/friends/search?gt=${encodeURIComponent(gamertag)}`, {
-      headers: { 'X-Authorization': apiKey }
-    });
-    const profile = searchRes.data.profileUsers?.[0];
-    if (!profile) return null;
-    const xuid = profile.id;
-
-    const presRes = await axios.get(`https://xbl.io/api/v2/${xuid}/presence`, {
-      headers: { 'X-Authorization': apiKey }
-    });
-
-    const presence = presRes.data[0];
-    if (presence && presence.state === 'Online' && presence.devices && presence.devices.length > 0) {
-      const activeDevice = presence.devices.find(d => d.titles && d.titles.length > 0);
-      if (activeDevice) {
-        const title = activeDevice.titles[0];
-        if (title.name && title.state === 'Active') {
-          return { game: title.name, song: title.name, artist: 'Xbox Live' };
-        }
-      }
-    }
-    return null;
-  } catch (err) {
-    console.error('Xbox OpenXBL error', err.response?.data || err.message);
-    return null;
-  }
-}
 
 async function fetchJellyfinActivity(serverUrl, apiKey, username) {
   if (!serverUrl || !apiKey || !username) return null;
@@ -1031,7 +993,7 @@ async function updateSlackStatus(token, text, emoji) {
 
 async function processUser(userId, user) {
   if (!user.slackToken || user.enabled === false) return;
-  if (!user.spotifyRefreshToken && !user.lastFmUsername && !user.steamId && !user.xboxGamertag && !user.traktUsername && !user.hackatimeAccessToken && !user.jellyfinUrl) return;
+  if (!user.spotifyRefreshToken && !user.lastFmUsername && !user.steamId && !user.traktUsername && !user.hackatimeAccessToken && !user.jellyfinUrl) return;
 
   try {
     const activeSources = user.dataSources || (user.dataSource ? [user.dataSource] : ['spotify']);
@@ -1040,7 +1002,6 @@ async function processUser(userId, user) {
       try {
         if (source === 'lastfm' && user.lastFmUsername) return { source, track: await fetchLastFmTrack(user.lastFmUsername, user.lastFmPlayCount, user.lastFmApiKey) };
         if (source === 'steam' && user.steamId) return { source, track: await fetchSteamGame(user.steamId, user.steamApiKey) };
-        if (source === 'xbox' && user.xboxGamertag) return { source, track: await fetchXboxPresence(user.xboxGamertag, XBL_API_KEY) };
         if (source === 'trakt' && user.traktAccessToken) return { source, track: await fetchTraktWatching(user.traktAccessToken) };
         if (source === 'jellyfin' && user.jellyfinUrl && user.jellyfinApiKey && user.jellyfinUsername) return { source, track: await fetchJellyfinActivity(user.jellyfinUrl, user.jellyfinApiKey, user.jellyfinUsername) };
         if (source === 'plex' && user.plexUrl && user.plexToken) return { source, track: await fetchPlexActivity(user.plexUrl, user.plexToken) };
