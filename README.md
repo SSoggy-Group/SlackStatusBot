@@ -4,8 +4,10 @@ a simple bot i built to sync whatever i'm listening to on spotify straight to my
 
 it has a full UI in the slack App Home tab so you can actually connect your accounts, customize your emoji, and turn the sync on and off without running any commands or dealing with config files. it also supports multiple users, so if u host it once, anyone in your slack workspace can use it.
 
+**MULTI-ACTIVITY**: select multiple data sources in the settings and it will automatically cycle your Slack status between everything you are currently doing!
+
 ## features
-- reads your current spotify, last.fm, steam, wakatime, or trakt activity every 10 seconds (u can choose)
+- reads your current spotify, last.fm, steam, hackatime, or trakt activity every 10 seconds (u can choose)
 - updates your slack status with `{song} - {artist}` (u can customize this, e.g. `Watching {show}`, `Coding in {language}`)
 - lets you type a comma-separated list of emojis in the settings (e.g. `:notes:, :headphones:`) and it picks a random one every song change
 - clears your status automatically if you pause your music
@@ -40,4 +42,4 @@ node src/index.js
 *(or use pm2 so it stays alive in the background)*
 
 ## usage
-just click on the bot's name in slack to open its App Home tab. click the buttons to authorize your slack account, then optionally link spotify, steam, trakt, wakatime, or last.fm. select your data source, turn on the sync toggle, and you're good to go.
+just click on the bot's name in slack to open its App Home tab. click the buttons to authorize your slack account, then optionally link spotify, steam, trakt, hackatime, or last.fm. select your data sources (you can select multiple!), turn on the sync toggle, and you're good to go.

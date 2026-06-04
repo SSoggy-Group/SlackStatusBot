@@ -26,3 +26,17 @@ the only tricky part was that the slack App Home UI didn't refresh when i first 
 i realized after doing last.fm that there's no reason to stop at music. basically anything that has a public "currently doing" api can be hooked into slack. since people didn't want to install local browser extensions or discord scripts to steal their presence, i kept it 100% cloud-based and added integrations for Steam (gaming), Trakt.tv (movies/shows), and WakaTime (coding). 
 
 it got a bit out of hand having four different text boxes sitting in the UI for api keys and usernames, so i ended up completely refactoring the slack app home view. now, it uses conditional rendering! you just pick your active data source from a clean dropdown, and the UI instantly morphs to show only the specific text box needed for that service. this keeps the settings menu looking pristine while packing in tons of functionality.
+
+## Entry 15
+- ID: 15
+- Author: SSoggyTacoMan
+- Created At: 2026-06-04T11:25:00+02:00
+
+### Content
+# hackclub takeover
+
+**Hours:** 1.5 hours
+
+so someone at hack club pointed out that literally everyone uses hackatime instead of wakatime because of the wakatime paywall. hackatime implements the exact same api spec, so i just swapped the base url over to `hackatime.hackclub.com/api/v1` and renamed the ui settings. huge quality of life improvement for the community!
+
+also, i finally fixed the biggest flaw: what if you are coding AND listening to music AND playing a game? you used to only be able to select ONE data source. i changed the UI to a multi-select dropdown. under the hood, the polling loop now uses `Promise.all` to fetch all your active APIs simultaneously every 10 seconds. if it finds multiple active sessions, it cycles between them on your slack status automatically! it's so incredibly sick to see my status flip between "Coding in JavaScript" and "Listening to Kendrick Lamar" without me touching anything.

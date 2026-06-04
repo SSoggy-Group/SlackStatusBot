@@ -175,51 +175,60 @@ function getCustomizationBlocks(user) {
   const emoji = user.statusEmoji || defaultEmoji;
   const clearOnPause = user.clearOnPause !== false;
 
-  return [
+  const options = [
+    { text: { type: 'plain_text', text: 'Spotify' }, value: 'spotify' },
+    { text: { type: 'plain_text', text: 'Last.fm' }, value: 'lastfm' },
+    { text: { type: 'plain_text', text: 'Steam' }, value: 'steam' },
+    { text: { type: 'plain_text', text: 'Hackatime (Coding)' }, value: 'wakatime' },
+    { text: { type: 'plain_text', text: 'Trakt' }, value: 'trakt' }
+  ];
+
+  const userSources = user.dataSources || (user.dataSource ? [user.dataSource] : ['spotify']);
+  const initialOptions = options.filter(o => userSources.includes(o.value));
+
+  let blocks = [
     { type: 'divider' },
     { type: 'section', text: { type: 'mrkdwn', text: '*Customization*' } },
     {
       type: 'input',
       dispatch_action: true,
       element: {
-        type: 'static_select',
+        type: 'multi_static_select',
         action_id: 'update_data_source',
-        options: [
-          { text: { type: 'plain_text', text: 'Spotify' }, value: 'spotify' },
-          { text: { type: 'plain_text', text: 'Last.fm' }, value: 'lastfm' },
-          { text: { type: 'plain_text', text: 'Steam' }, value: 'steam' },
-          { text: { type: 'plain_text', text: 'WakaTime' }, value: 'wakatime' },
-          { text: { type: 'plain_text', text: 'Trakt' }, value: 'trakt' }
-        ],
-        initial_option: { text: { type: 'plain_text', text: user.dataSource || 'Spotify' }, value: user.dataSource || 'spotify' }
+        options: options,
+        initial_options: initialOptions.length > 0 ? initialOptions : [options[0]]
       },
-      label: { type: 'plain_text', text: 'Active Data Source' }
+      label: { type: 'plain_text', text: 'Active Data Sources' },
+      hint: { type: 'plain_text', text: 'Select multiple to cycle between them!' }
     }
   ];
 
-  if (user.dataSource === 'lastfm') {
+  if (userSources.includes('lastfm')) {
     blocks.push({
       type: 'input', dispatch_action: true, optional: true,
       element: { type: 'plain_text_input', action_id: 'update_lastfm_username', initial_value: user.lastFmUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
       label: { type: 'plain_text', text: 'Last.fm Username' }, hint: { type: 'plain_text', text: 'Press enter to save.' }
     });
-  } else if (user.dataSource === 'steam') {
+  }
+  if (userSources.includes('steam')) {
     blocks.push({
       type: 'input', dispatch_action: true, optional: true,
       element: { type: 'plain_text_input', action_id: 'update_steam_id', initial_value: user.steamId || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
       label: { type: 'plain_text', text: 'Steam ID (64-bit)' }, hint: { type: 'plain_text', text: 'Press enter to save.' }
     });
-  } else if (user.dataSource === 'trakt') {
+  }
+  if (userSources.includes('trakt')) {
     blocks.push({
       type: 'input', dispatch_action: true, optional: true,
       element: { type: 'plain_text_input', action_id: 'update_trakt_username', initial_value: user.traktUsername || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
       label: { type: 'plain_text', text: 'Trakt Username' }, hint: { type: 'plain_text', text: 'Press enter to save.' }
     });
-  } else if (user.dataSource === 'wakatime') {
+  }
+  if (userSources.includes('wakatime')) {
     blocks.push({
       type: 'input', dispatch_action: true, optional: true,
       element: { type: 'plain_text_input', action_id: 'update_wakatime_api_key', initial_value: user.wakatimeApiKey || '', dispatch_action_config: { trigger_actions_on: ['on_enter_pressed'] } },
-      label: { type: 'plain_text', text: 'WakaTime Secret API Key' }, hint: { type: 'plain_text', text: 'Press enter to save.' }
+      label: { type: 'plain_text', text: 'Hackatime Secret API Key' }, hint: { type: 'plain_text', text: 'Press enter to save.' }
     });
   }
 
@@ -381,15 +390,18 @@ slackApp.action('update_wakatime_api_key', async ({ body, ack, action, client })
 
 slackApp.action('update_data_source', async ({ body, ack, action, client }) => {
   await ack();
-  const val = action.selected_option.value;
+  const vals = action.selected_options.map(o => o.value);
   let defaultFormat = '{song} - {artist}';
-  if (val === 'steam') defaultFormat = '{game}';
-  if (val === 'wakatime') defaultFormat = 'Coding in {language}';
-  if (val === 'trakt') defaultFormat = 'Watching {show} - {title}';
+  if (vals.length === 1) {
+    const val = vals[0];
+    if (val === 'steam') defaultFormat = '{game}';
+    if (val === 'wakatime') defaultFormat = 'Coding in {language}';
+    if (val === 'trakt') defaultFormat = 'Watching {show} - {title}';
+  }
 
   const user = db.getUser(body.user.id);
-  const updates = { dataSource: val, lastTrack: null };
-  if (!user.statusFormat) updates.statusFormat = defaultFormat; // preset a good default format
+  const updates = { dataSources: vals, dataSource: vals.length > 0 ? vals[0] : null, lastTrack: null };
+  if (!user.statusFormat) updates.statusFormat = defaultFormat;
 
   db.saveUser(body.user.id, updates);
   await updateHomeView(body.user.id, client);
@@ -500,7 +512,7 @@ async function fetchTraktWatching(username) {
 }
 
 async function fetchWakatimeActivity(apiKey) {
-  const response = await axios.get(`https://wakatime.com/api/v1/users/current/heartbeats?limit=1`, {
+  const response = await axios.get(`https://hackatime.hackclub.com/api/v1/users/current/heartbeats?limit=1`, {
     headers: { Authorization: `Basic ${Buffer.from(apiKey).toString('base64')}` },
     validateStatus: (status) => status < 300
   });
@@ -546,42 +558,71 @@ async function processUser(userId, user) {
   if (!user.spotifyRefreshToken && !user.lastFmUsername && !user.steamId && !user.traktUsername && !user.wakatimeApiKey) return;
 
   try {
-    let track = null;
+    const activeSources = user.dataSources || (user.dataSource ? [user.dataSource] : ['spotify']);
     
-    if (user.dataSource === 'lastfm' && user.lastFmUsername) {
-      track = await fetchLastFmTrack(user.lastFmUsername);
-    } else if (user.dataSource === 'steam' && user.steamId) {
-      track = await fetchSteamGame(user.steamId);
-    } else if (user.dataSource === 'trakt' && user.traktUsername) {
-      track = await fetchTraktWatching(user.traktUsername);
-    } else if (user.dataSource === 'wakatime' && user.wakatimeApiKey) {
-      track = await fetchWakatimeActivity(user.wakatimeApiKey);
-    } else if (user.spotifyRefreshToken) {
-      const accessToken = await fetchSpotifyToken(user.spotifyRefreshToken);
-      track = await fetchCurrentTrack(accessToken);
-    }
-    
-    const format = user.statusFormat || defaultFormat;
-    let emoji = user.statusEmoji || defaultEmoji;
+    const fetchPromises = activeSources.map(async (source) => {
+      try {
+        if (source === 'lastfm' && user.lastFmUsername) return { source, track: await fetchLastFmTrack(user.lastFmUsername) };
+        if (source === 'steam' && user.steamId) return { source, track: await fetchSteamGame(user.steamId) };
+        if (source === 'trakt' && user.traktUsername) return { source, track: await fetchTraktWatching(user.traktUsername) };
+        if (source === 'wakatime' && user.wakatimeApiKey) return { source, track: await fetchWakatimeActivity(user.wakatimeApiKey) };
+        if (source === 'spotify' && user.spotifyRefreshToken) {
+          const accessToken = await fetchSpotifyToken(user.spotifyRefreshToken);
+          return { source, track: await fetchCurrentTrack(accessToken) };
+        }
+      } catch (e) {
+        console.error(`Fetch error for ${source}:`, e.message);
+      }
+      return { source, track: null };
+    });
+
+    const results = await Promise.all(fetchPromises);
+    const activeTracks = results.filter(r => r && r.track);
     const clearOnPause = user.clearOnPause !== false;
 
-    if (emoji.includes(',')) {
-      const emojis = emoji.split(',').map(e => e.trim()).filter(e => e.length > 0);
-      if (emojis.length > 0) {
-        emoji = emojis[Math.floor(Math.random() * emojis.length)];
-      }
-    }
+    if (activeTracks.length > 0) {
+      let cycleIndex = user.cycleIndex || 0;
+      if (cycleIndex >= activeTracks.length) cycleIndex = 0;
+      
+      const current = activeTracks[cycleIndex];
+      const nextCycleIndex = (cycleIndex + 1) % activeTracks.length;
+      
+      db.saveUser(userId, { cycleIndex: nextCycleIndex });
 
-    if (track) {
-      let text = format
-        .replace('{song}', track.song || '')
-        .replace('{artist}', track.artist || '')
-        .replace('{album}', track.album || '')
-        .replace('{game}', track.game || '')
-        .replace('{show}', track.show || '')
-        .replace('{title}', track.title || '')
-        .replace('{project}', track.project || '')
-        .replace('{language}', track.language || '');
+      let text = '';
+      let emoji = user.statusEmoji || defaultEmoji;
+      
+      if (current.source === 'spotify' || current.source === 'lastfm') {
+        text = `${current.track.song} - ${current.track.artist}`;
+      } else if (current.source === 'steam') {
+        text = `Playing ${current.track.game}`;
+        emoji = ':video_game:';
+      } else if (current.source === 'wakatime') {
+        text = `Coding in ${current.track.language}`;
+        emoji = ':computer:';
+      } else if (current.source === 'trakt') {
+        text = `Watching ${current.track.show || current.track.title}`;
+        emoji = ':tv:';
+      }
+
+      if (activeSources.length === 1 && user.statusFormat) {
+        text = user.statusFormat
+          .replace('{song}', current.track.song || '')
+          .replace('{artist}', current.track.artist || '')
+          .replace('{album}', current.track.album || '')
+          .replace('{game}', current.track.game || '')
+          .replace('{show}', current.track.show || '')
+          .replace('{title}', current.track.title || '')
+          .replace('{project}', current.track.project || '')
+          .replace('{language}', current.track.language || '');
+      }
+
+      if (emoji.includes(',')) {
+        const emojis = emoji.split(',').map(e => e.trim()).filter(e => e.length > 0);
+        if (emojis.length > 0) {
+          emoji = emojis[Math.floor(Math.random() * emojis.length)];
+        }
+      }
         
       if (text.length > maxLen) {
         text = text.substring(0, maxLen - 1) + '…';
