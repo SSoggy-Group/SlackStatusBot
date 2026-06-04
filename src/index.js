@@ -245,7 +245,7 @@ server.get('/xbox/auth', (req, res) => {
   const slackUserId = req.query.user;
   if (!slackUserId) return res.send('Missing user ID');
   const state = encodeURIComponent(slackUserId);
-  const authUrl = xboxAuth.live.getAuthorizeUrl(XBOX_CLIENT_ID, 'XboxLive.signin offline_access', encodeURIComponent(`${PUBLIC_URL}/xbox/callback`));
+  const authUrl = xboxAuth.live.getAuthorizeUrl(XBOX_CLIENT_ID, 'XboxLive.signin offline_access', `${PUBLIC_URL}/xbox/callback`);
   res.redirect(`${authUrl}&state=${state}`);
 });
 
@@ -307,21 +307,7 @@ function getAccountBlocks(user, userId) {
     { type: 'section', text: { type: 'mrkdwn', text: user.hackatimeAccessToken ? '✅ *Hackatime*: Connected' : '❌ *Hackatime*: Not Connected' }, accessory: hackatimeBtn }
   ];
 
-  if (HACKATIME_CLIENT_ID && HACKATIME_CLIENT_SECRET) {
-    if (user.hackatimeAccessToken) {
-      blocks.push({
-        type: 'section',
-        text: { type: 'mrkdwn', text: '*Hackatime* :white_check_mark:\nAuthenticated' },
-        accessory: { type: 'button', text: { type: 'plain_text', text: 'Unlink' }, action_id: 'unauth_hackatime', style: 'danger' }
-      });
-    } else {
-      blocks.push({
-        type: 'section',
-        text: { type: 'mrkdwn', text: '*Hackatime* :x:\nNot authenticated' },
-        accessory: { type: 'button', text: { type: 'plain_text', text: 'Link Hackatime' }, action_id: 'link_hackatime', url: `${PUBLIC_URL}/hackatime/auth?user=${userId}`, style: 'primary' }
-      });
-    }
-  }
+
 
   if (XBOX_CLIENT_ID && XBOX_CLIENT_SECRET) {
     if (user.xboxXstsToken) {
