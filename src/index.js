@@ -303,9 +303,16 @@ function getAccountBlocks(user, userId) {
     { type: 'divider' },
     { type: 'section', text: { type: 'mrkdwn', text: '*Accounts*' } },
     { type: 'section', text: { type: 'mrkdwn', text: user.slackToken ? '✅ *Slack*: Connected' : '❌ *Slack*: Not Connected' }, accessory: slackBtn },
-    { type: 'section', text: { type: 'mrkdwn', text: user.spotifyRefreshToken ? '✅ *Spotify*: Connected' : '❌ *Spotify*: Not Connected' }, accessory: spotifyBtn },
-    { type: 'section', text: { type: 'mrkdwn', text: user.hackatimeAccessToken ? '✅ *Hackatime*: Connected' : '❌ *Hackatime*: Not Connected' }, accessory: hackatimeBtn }
+    { type: 'section', text: { type: 'mrkdwn', text: user.spotifyRefreshToken ? '✅ *Spotify*: Connected' : '❌ *Spotify*: Not Connected' }, accessory: spotifyBtn }
   ];
+
+  if (HACKATIME_CLIENT_ID && HACKATIME_CLIENT_SECRET) {
+    blocks.push({
+      type: 'section',
+      text: { type: 'mrkdwn', text: user.hackatimeAccessToken ? '✅ *Hackatime*: Connected' : '❌ *Hackatime*: Not Connected' },
+      accessory: hackatimeBtn
+    });
+  }
 
 
 
