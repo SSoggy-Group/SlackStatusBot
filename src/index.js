@@ -540,6 +540,10 @@ function getCustomizationBlocks(user) {
   addPlatformUI('wakatime', 'Hackatime');
   addPlatformUI('trakt', 'Trakt');
   addPlatformUI('jellyfin', 'Jellyfin');
+  addPlatformUI('plex', 'Plex');
+  addPlatformUI('lichess', 'Lichess');
+  addPlatformUI('chesscom', 'Chess.com');
+  addPlatformUI('duolingo', 'Duolingo');
 
   blocks.push(
     { type: 'divider' },
